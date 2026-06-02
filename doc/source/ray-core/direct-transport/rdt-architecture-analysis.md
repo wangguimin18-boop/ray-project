@@ -235,7 +235,7 @@ classDiagram
 flowchart TB
     subgraph UserCode["用户代码"]
         A[定义 Actor 类<br>@ray.method.tensor_transport='nccl'] --> B[创建 Actor 实例<br>a1, a2 = Actor.remote]
-        B --> C[创建集合通信组<br>create_collective_group<br>[a1, a2], backend='nccl']
+        B --> C[创建集合通信组<br>create_collective_group<br>(a1, a2), backend='nccl']
         C --> D[调用返回 tensor 的任务<br>ref = a1.get_tensor.remote]
         D --> E[将 ref 传给另一个 actor<br>a2.consume.remote]
         E --> F[可选: ray.get<br>_use_object_store=True]
