@@ -234,11 +234,11 @@ classDiagram
 ```mermaid
 flowchart TB
     subgraph UserCode["用户代码"]
-        A[定义 Actor 类<br>@ray.method.tensor_transport='nccl'] --> B[创建 Actor 实例<br>a1, a2 = Actor.remote]
-        B --> C[创建集合通信组<br>create_collective_group<br>(a1, a2), backend='nccl']
-        C --> D[调用返回 tensor 的任务<br>ref = a1.get_tensor.remote]
-        D --> E[将 ref 传给另一个 actor<br>a2.consume.remote]
-        E --> F[可选: ray.get<br>_use_object_store=True]
+        A["定义 Actor 类<br>@ray.method tensor_transport=nccl"] --> B["创建 Actor 实例<br>a1, a2 = Actor.remote"]
+        B --> C["创建集合通信组<br>create_collective_group<br>a1, a2, backend=nccl"]
+        C --> D["调用返回 tensor 的任务<br>ref = a1.get_tensor.remote"]
+        D --> E["将 ref 传给另一个 actor<br>a2.consume.remote"]
+        E --> F["可选: ray.get<br>_use_object_store=True"]
     end
 
     subgraph RayInternals["Ray 内部"]
@@ -270,7 +270,7 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph UserCode["用户代码"]
-        A[定义 Actor 类<br>@ray.method.tensor_transport='nixl'] --> B[创建 Actor 实例<br>a1, a2 = Actor.remote<br>enable_tensor_transport=True]
+        A["定义 Actor 类<br>@ray.method tensor_transport=nixl"] --> B["创建 Actor 实例<br>a1, a2 = Actor.remote<br>enable_tensor_transport=True"]
         B --> C[可选: register_nixl_memory<br>或 register_nixl_memory_pool<br>预注册内存提升性能]
         C --> D[调用返回 tensor 的任务<br>ref = a1.get_tensor.remote]
         D --> E[将 ref 传给另一个 actor<br>a2.consume.remote]
@@ -278,7 +278,7 @@ flowchart TB
     end
 
     subgraph RayInternals["Ray 内部"]
-        D -.-> D1[RDTManager.add_rdt_ref<br>记录 src_actor + 'NIXL']
+        D -.-> D1[RDTManager.add_rdt_ref<br>记录 src_actor + NIXL transport 类型]
         D1 -.-> D2[Actor 任务返回 tensor<br>RDTStore.add_object_primary]
         D2 -.-> D3[extract_tensor_transport_metadata<br>注册 NIXL 内存 / 序列化描述符]
         D3 -.-> D4[元数据回传到 owner<br>包含 nixl_serialized_descs<br>nixl_agent_meta, nixl_agent_name]
@@ -449,11 +449,11 @@ sequenceDiagram
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Created : ray.remote() 或 ray.put()
-    Created --> MetaPending : add_rdt_ref<br>(tensor_transport_meta=None)
+    [*] --> Created : ray.remote 或 ray.put
+    Created --> MetaPending : add_rdt_ref<br>tensor_transport_meta=None
     MetaPending --> MetaReady : extract_tensor_transport_metadata<br>→ set_tensor_transport_metadata
 
-    MetaPending --> QueuedTransfer : queue_or_trigger<br>(meta 未就绪时排队)
+    MetaPending --> QueuedTransfer : queue_or_trigger<br>meta 未就绪时排队
     QueuedTransfer --> Transferring : meta 就绪后触发
     MetaReady --> Transferring : trigger_out_of_band_tensor_transfer
 
@@ -464,7 +464,7 @@ stateDiagram-v2
         RecvOnly --> TransferComplete
     }
 
-    Transferring --> Received : RDTStore.add_object(dst)
+    Transferring --> Received : RDTStore.add_object
     Received --> Consumed : 任务反序列化<br>wait_and_pop_object
 
     MetaReady --> QueuedFree : free 在 meta 就绪前到达
@@ -499,16 +499,16 @@ flowchart TB
         B -->|否| D[pool_eligible = False]
         C --> E[_allocate_pool_xfer_descs<br>从 pool 分配 MemoryBlock<br>复制 tensor 数据到 pool]
         D --> F[_add_tensor_descs<br>注册 tensor 到 NIXL<br>ref_count++]
-        E --> G[_add_pool_tensor_descs<br>reg_desc=None, metadata_count=1]
+        E --> G["_add_pool_tensor_descs<br>reg_desc=None, metadata_count=1"]
         F --> H[NixlAgent.register_memory<br>返回 reg_desc]
         G --> I[NixlAgent.get_xfer_descs<br>使用 pool_tensor 的描述符]
         H --> I
         I --> J[get_serialized_descs → bytes<br>get_agent_metadata → bytes<br>构造 NixlTransportMetadata]
     end
 
-    subgraph Transfer["传输 (RDMA READ)"]
-        K[fetch_multiple_tensors] --> L[创建空 tensors<br>或使用 target_buffers]
-        L --> M[_add_tensor_descs(tensors)<br>接收端注册内存]
+    subgraph Transfer["传输 RDMA READ"]
+        K[fetch_multiple_tensors] --> L["创建空 tensors<br>或使用 target_buffers"]
+        L --> M["_add_tensor_descs tensors<br>接收端注册内存"]
         M --> N[deserialize_descs<br>→ remote_xfer_descs]
         N --> O[add_remote_agent<br>→ 建立远程连接]
         O --> P[initialize_xfer READ<br>local_xfer + remote_xfer]
