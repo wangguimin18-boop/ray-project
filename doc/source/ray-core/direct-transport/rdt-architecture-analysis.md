@@ -526,7 +526,7 @@ flowchart TB
         X --> Y[_remove_tensor_descs]
         Y --> Z{reg_desc?}
         Z -->|有 reg_desc| AA[deregister_memory<br>NIXL 注销 + 版本号++]
-        Z -->|None (pool)| AB[MemoryPoolManager.free_tensors<br>归还 MemoryBlock 到 pool]
+        Z -->|None, pool path| AB[MemoryPoolManager.free_tensors<br>归还 MemoryBlock 到 pool]
     end
 
     Registration --> Transfer --> Cleanup
