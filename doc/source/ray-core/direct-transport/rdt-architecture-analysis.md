@@ -328,8 +328,8 @@ sequenceDiagram
     RDTMgr->>Transport: get_communicator_metadata(src_actor, dst_actor, "nccl")
     Transport-->>RDTMgr: CollectiveCommunicatorMetadata(communicator_name, src_rank, dst_rank)
 
-    RDTMgr->>SrcActor: __ray_send__(obj_id, meta, comm_meta, "nccl")<br>[concurrency_group="_ray_system"]
-    RDTMgr->>DstActor: __ray_recv__(obj_id, meta, comm_meta, "nccl")<br>[concurrency_group="_ray_system"]
+    RDTMgr->>SrcActor: __ray_send__(obj_id, meta, comm_meta, "nccl")<br>concurrency_group="_ray_system"
+    RDTMgr->>DstActor: __ray_recv__(obj_id, meta, comm_meta, "nccl")<br>concurrency_group="_ray_system"
     RDTMgr->>Monitor: TransferMetadata(send_ref, recv_ref, ...)
 
     SrcActor->>RDTStoreSrc: get_object(obj_id) → tensors
@@ -341,7 +341,7 @@ sequenceDiagram
     Transport-->>DstActor: received tensors
     DstActor->>RDTStoreDst: add_object(obj_id, tensors)
 
-    Monitor->>Monitor: ray.wait([send_ref, recv_ref])<br>检查完成/失败
+    Monitor->>Monitor: ray.wait(send_ref, recv_ref)<br>检查完成/失败
     Note over Monitor: 失败时调用 _abort_transport<br>kill actors 或 destroy_collective_group
 
     Note over DstActor: 任务执行时反序列化
@@ -386,7 +386,7 @@ sequenceDiagram
     NixlTransport-->>RDTMgr: NixlCommunicatorMetadata() (空)
 
     Note over RDTMgr: is_one_sided=True → 不提交 __ray_send__
-    RDTMgr->>DstActor: __ray_recv__(obj_id, meta, comm_meta, "nixl")<br>[concurrency_group="_ray_system"]
+    RDTMgr->>DstActor: __ray_recv__(obj_id, meta, comm_meta, "nixl")<br>concurrency_group="_ray_system"
 
     DstActor->>NixlTransport: recv_multiple_tensors(obj_id, meta, comm_meta)
     Note over NixlTransport: 内部调用 fetch_multiple_tensors + wait_fetch_complete
