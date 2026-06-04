@@ -1945,6 +1945,7 @@ class CoreWorker : public std::enable_shared_from_this<CoreWorker> {
   bool gcs_client_node_cache_populated_ = false;
 
   /// Callback to free an RDT object when it is out of scope.
+  /// 当 RDT 对象超出作用域时释放该对象的回调。
   std::function<void(const ObjectID &)> free_actor_object_callback_;
 
   // Shutdown synchronization primitives

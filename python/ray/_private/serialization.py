@@ -111,16 +111,23 @@ def _rdt_ref_deserializer(
     the RDT object to the RDT manager, which will be used to fetch
     the RDT object later.
 
+    反序列化 RDT ObjectRef。当 RDT ObjectRef 被反序列化时，
+    首先反序列化普通的 ObjectRef，然后将 RDT 对象的元数据添加到
+    RDTManager 中，该元数据将在后续获取 RDT 对象时使用。
+
     Args:
         binary: The binary data of the object ref.
         call_site: The call site of the object ref.
         owner_address: The owner address of the object ref.
         object_status: The object status of the object ref.
         tensor_transport: The tensor transport value of the RDT object ref.
+            RDT ObjectRef 的 tensor transport 值。
         rdt_meta: The RDT metadata. This is used to fetch the RDT object later.
+            RDT 元数据，用于后续获取 RDT 对象。
 
     Returns:
         The deserialized RDT object ref.
+        反序列化后的 RDT ObjectRef。
     """
     obj_ref = _object_ref_deserializer(
         binary, call_site, owner_address, object_status, tensor_transport
@@ -153,10 +160,14 @@ class SerializationContext:
         self._thread_local = threading.local()
 
         # These flags are to mark whether the custom serializer for a rdt type
+        # 这些标志用于标记某个 rdt 类型（如 torch.Tensor 或 jax.Array）的自定义序列化器是否已注册。
         # (e.g. torch.Tensor or jax.Array) has been registered.
         # If the method is decorated with `@ray.method(tensor_transport="xxx")`,
+        # 如果方法被 `@ray.method(tensor_transport="xxx")` 装饰，
         # it will use external transport to move this type between actors,
+        # 它将使用外部传输来在 actor 之间移动此类型，
         # instead of the normal serialize -> object store -> deserialize codepath.
+        # 而不是正常的 serialize -> object store -> deserialize 代码路径。
         self._rdt_custom_serializer_registered: Dict[type, bool] = {}
 
         # Enable zero-copy serialization of tensors if the environment variable is set.
@@ -217,6 +228,7 @@ class SerializationContext:
                 obj
             )
             # Check if this is an RDT ObjectRef being serialized inside a collection
+            # 检查是否是 RDT ObjectRef 在集合内部被序列化
             if self.is_in_band_serialization() and worker.rdt_manager.is_managed_object(
                 obj.hex()
             ):
@@ -230,6 +242,7 @@ class SerializationContext:
                         "owner (not through ray.put). This is not supported yet, see issue #59644 for more details."
                     )
                 # We don't want to send over any target buffers the user set
+                # 我们不希望发送用户设置的任何目标缓冲区
                 if rdt_meta.target_buffers:
                     rdt_meta = rdt_meta._replace(target_buffers=None)
                 return _rdt_ref_deserializer, (
@@ -344,6 +357,8 @@ class SerializationContext:
             out_of_band_tensors: Tensors that were sent out-of-band. If this is
                 not None, then the serialized data will contain placeholders
                 that need to be replaced with these tensors.
+                通过带外方式发送的 Tensor。如果不为 None，
+                则序列化数据中将包含需要被这些 Tensor 替换的占位符。
 
         Returns:
             Any: The deserialized object.
@@ -675,11 +690,16 @@ class SerializationContext:
     ) -> Tuple[MessagePackSerializedObject, List[Any]]:
         """Retrieve GPU data from `value` and store it in the GPU object store. Then, return the serialized value.
 
+        从 `value` 中提取 GPU 数据并将其存储在 GPU 对象存储中，然后返回序列化后的值。
+
         Args:
             value: The value to serialize.
+                要序列化的值。
             tensor_transport: The transport with which the RDT object will be transferred.
+                RDT 对象传输所使用的传输方式。
         Returns:
             Serialized value.
+            序列化后的值。
         """
         from ray.experimental.rdt.util import get_transport_data_type
 
@@ -687,14 +707,20 @@ class SerializationContext:
             ctx = ray._private.worker.global_worker.get_serialization_context()
             if getattr(ctx._thread_local, "use_external_transport", False):
                 # Store the tensor in the thread-local array for RDT and store the index
+                # 将 Tensor 存储在 RDT 的线程本地数组中，并将索引
                 # in the serialized object.
+                # 存储在序列化对象中。
                 ctx._thread_local.rdt_tensors.append(tensor)
                 return len(ctx._thread_local.rdt_tensors) - 1
 
             # If the custom rdt serializer is already registered for this type
+            # 如果自定义的 rdt 序列化器已经为该类型注册，
             # but this method is not an rdt method, we'll try to serialize with
+            # 但此方法不是 rdt 方法，我们将尝试使用
             # the default pickle serializer to avoid registering and deregistering
+            # 默认的 pickle 序列化器进行序列化，以避免
             # serializers per function call.
+            # 每次函数调用时反复注册和注销序列化器。
             import pickle
 
             return pickle.dumps(tensor)
@@ -703,7 +729,9 @@ class SerializationContext:
             ctx = ray._private.worker.global_worker.get_serialization_context()
             if isinstance(val, int):
                 # Index into the thread-local array based on the index stored
+                # 根据序列化时存储的索引，访问线程本地数组
                 # during serialization.
+                # 中的元素。
                 assert val < len(ctx._thread_local.rdt_tensors)
                 return ctx._thread_local.rdt_tensors[val]
 
@@ -715,9 +743,13 @@ class SerializationContext:
         data_type = get_transport_data_type(tensor_transport)
 
         # Register a custom serializer for torch.Tensor or jax.Array. If the method is
+        # 为 torch.Tensor 或 jax.Array 注册自定义序列化器。如果方法被
         # decorated with `@ray.method(tensor_transport="xxx")`, it will use external
+        # `@ray.method(tensor_transport="xxx")` 装饰，它将使用外部传输
         # transport (e.g. gloo, nccl, etc.) for tensor communication between actors,
+        # （如 gloo、NCCL 等）进行 actor 之间的 Tensor 通信，
         # instead of the normal serialize -> object store -> deserialize codepath.
+        # 而不是正常的 serialize -> object store -> deserialize 代码路径。
         if not self._rdt_custom_serializer_registered.get(data_type, False):
             ray.util.serialization.register_serializer(
                 data_type,
@@ -728,7 +760,9 @@ class SerializationContext:
             self._rdt_custom_serializer_registered[data_type] = True
 
         # Pull the tensors out during serialization and store the array indices in the serialized object.
+        # 在序列化时提取 Tensor，并将数组索引存储在序列化对象中。
         # Then resets to the original state for future method calls.
+        # 然后重置为原始状态以供后续方法调用。
         self._thread_local.use_external_transport = True
         self._thread_local.rdt_tensors = []
         try:
@@ -746,14 +780,21 @@ class SerializationContext:
         """
         Store RDT objects in the RDT store.
 
+        将 RDT 对象存储到 RDT 存储中。
+
         Args:
             obj_id: The object ID of the value. `obj_id` is required, and the RDT data (e.g. tensors) in `value`
                 will be stored in the RDT store with the key `obj_id`.
+                对象值的 ID。`obj_id` 是必需的，`value` 中的 RDT 数据（如 Tensor）
+                将以 `obj_id` 为键存储到 RDT 存储中。
             tensors: The tensors to store in the RDT store.
+                要存储到 RDT 存储中的 Tensor。
             tensor_transport: The transport with which the RDT object will be transferred.
+                RDT 对象传输所使用的传输方式。
 
         Returns:
             The serialized tensor transport metadata
+            序列化后的 tensor transport 元数据。
         """
         assert (
             obj_id is not None
@@ -761,6 +802,8 @@ class SerializationContext:
         # Regardless of whether `tensors` is empty, we always store the RDT object in
         # the RDT store. This ensures that direct transport system tasks are not
         # blocked indefinitely.
+        # 无论 `tensors` 是否为空，我们始终将 RDT 对象存储到 RDT 存储中。
+        # 这确保了 direct transport 系统任务不会被无限期阻塞。
         worker = ray._private.worker.global_worker
         rdt_manager = worker.rdt_manager
         tensor_transport_meta = rdt_manager.rdt_store.add_object_primary(

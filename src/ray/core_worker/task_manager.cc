@@ -1829,8 +1829,10 @@ std::vector<ObjectID> ExtractPlasmaDependencies(const TaskSpecification &spec) {
       plasma_dependencies.push_back(spec.ArgObjectId(i));
     } else if (spec.ArgTensorTransport(i).has_value()) {
       // RDT objects are inlined but the actual data lives on the remote actor.
+      // RDT 对象虽然被内联，但实际数据存在于远程 actor 上。
       // Therefore, we apply the reference counting protocol used for plasma objects
       // instead of decrementing the ref count upon inlining.
+      // 因此，我们采用 plasma 对象的引用计数协议，而不是在内联时递减引用计数。
       plasma_dependencies.push_back(spec.ArgObjectId(i));
     } else {
       const auto &inlined_refs = spec.ArgInlinedRefs(i);

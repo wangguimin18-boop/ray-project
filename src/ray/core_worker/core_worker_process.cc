@@ -485,6 +485,7 @@ std::shared_ptr<CoreWorker> CoreWorkerProcessImpl::CreateCoreWorker(
         core_worker->free_actor_object_callback_(object_id);
       },
       /*set_direct_transport_metadata=*/
+      /*设置 direct_transport_metadata 的回调参数*/
       [this,
        set_direct_transport_metadata = std::move(options.set_direct_transport_metadata)](
           const ObjectID &object_id, std::string direct_transport_metadata) {
@@ -571,6 +572,7 @@ std::shared_ptr<CoreWorker> CoreWorkerProcessImpl::CreateCoreWorker(
       /*tensor_transport_getter=*/
       [](const ObjectID &object_id) {
         // Currently, RDT is only supported for actor tasks.
+        // 目前，RDT 仅支持 actor 任务。
         return std::nullopt;
       },
       io_service_,

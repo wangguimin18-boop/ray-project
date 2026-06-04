@@ -1065,6 +1065,7 @@ Status CoreWorker::CreateOwnedAndIncrementLocalRef(
                                      /*tensor_transport=*/tensor_transport);
 
   // Register the callback to free the RDT object when it is out of scope.
+  // 注册回调，当 RDT 对象超出作用域时释放该对象。
   if (tensor_transport.has_value()) {
     reference_counter_->AddObjectOutOfScopeOrFreedCallback(*object_id,
                                                            free_actor_object_callback_);
@@ -1346,6 +1347,8 @@ Status CoreWorker::GetObjects(const std::vector<ObjectID> &ids,
     // If any of the objects have been promoted to plasma, then we retry their
     // gets at the provider plasma. Once we get the objects from plasma, we flip
     // the transport type again and return them for the original direct call ids.
+    // 如果某些对象已被提升到 plasma，则我们在 plasma 提供方重试获取。
+    // 从 plasma 获取对象后，再次翻转传输类型，并为原始 direct call id 返回这些对象。
 
     // Prepare object ids vector and owner addresses vector
     std::vector<ObjectID> object_ids =

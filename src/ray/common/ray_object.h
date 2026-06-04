@@ -186,6 +186,7 @@ class RayObject {
   std::optional<std::string> tensor_transport_;
   /// The direct transport metadata for the object if the object is a direct transport
   /// object.
+  /// 该对象的 direct transport 元数据，当该对象是 direct transport 对象时使用。
   std::optional<std::string> direct_transport_metadata_;
 };
 

@@ -842,9 +842,11 @@ class TaskManager : public TaskManagerInterface {
   observability::MetricInterface &total_lineage_bytes_gauge_;
 
   /// Callback to free GPU object from the in-actor RDT store.
+  /// 从 actor 内部 RDT 存储中释放 GPU 对象的回调。
   FreeActorObjectCallback free_actor_object_callback_;
 
   /// Callback to set the direct transport metadata for a object.
+  /// 为对象设置 direct transport 元数据的回调。
   SetDirectTransportMetadata set_direct_transport_metadata_;
 
   friend class TaskManagerTest;

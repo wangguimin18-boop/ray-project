@@ -135,8 +135,10 @@ struct CoreWorkerOptions {
   /// Application-language worker callback to execute tasks.
   TaskExecutionCallback task_execution_callback;
   /// Callback to free RDT object from the in-actor RDT store.
+  /// 从 actor 内部 RDT 存储中释放 RDT 对象的回调。
   FreeActorObjectCallback free_actor_object_callback;
   /// Callback to set the direct transport metadata for an RDT object.
+  /// 为 RDT 对象设置 direct transport 元数据的回调。
   SetDirectTransportMetadata set_direct_transport_metadata;
   /// Application-language callback to check for signals that have been received
   /// since calling into C++. This will be called periodically (at least every
