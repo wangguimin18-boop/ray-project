@@ -458,9 +458,11 @@ class Worker:
         self.actors = {}
         # RDT manager to manage RDT object lifecycles, including coordinating out-of-band
         # tensor transfers between actors, storing and retrieving RDT objects, and garbage collection.
+        # RDT 管理器，用于管理 RDT 对象的生命周期，包括协调 actor 之间的带外 Tensor 传输、存储和检索 RDT 对象以及垃圾回收。
         # We create the RDT manager lazily, if a user specifies a non-default
         # tensor_transport, to avoid circular import and because it imports
         # third-party dependencies like PyTorch.
+        # 我们惰性创建 RDT 管理器，仅在用户指定非默认 tensor_transport 时才初始化，以避免循环导入，且因为它会导入 PyTorch 等第三方依赖。
         self._rdt_manager = None
         # When the worker is constructed. Record the original value of the
         # (CUDA_VISIBLE_DEVICES, ONEAPI_DEVICE_SELECTOR, HIP_VISIBLE_DEVICES,
@@ -513,10 +515,24 @@ class Worker:
 
     @property
     def rdt_manager(self) -> "ray.experimental.RDTManager":
+        """Property that lazily initializes and returns the RDTManager instance.
+
+        The RDTManager manages RDT object lifecycles including tensor
+        transfers between actors, object storage/retrieval, and garbage
+        collection. It is created only when needed to avoid circular
+        imports and third-party dependency overhead.
+
+        惰性初始化并返回 RDTManager 实例的属性。
+
+        RDTManager 管理 RDT 对象的生命周期，包括 actor 之间的 Tensor 传输、
+        对象存储/检索和垃圾回收。仅在需要时创建，以避免循环导入和第三方依赖开销。
+        """
         if self._rdt_manager is None:
             # We create the RDT manager lazily, if a user specifies a
             # non-default tensor_transport, to avoid circular import and because
             # it imports third-party dependencies like PyTorch.
+            # 我们惰性创建 RDT 管理器，仅在用户指定非默认 tensor_transport 时才初始化，
+            # 以避免循环导入，且因为它会导入 PyTorch 等第三方依赖。
             from ray.experimental import RDTManager
 
             self._rdt_manager = RDTManager()
@@ -824,6 +840,7 @@ class Worker:
                 valid value. The object must be written to using the
                 ray.experimental.channel API before readers can read.
             _tensor_transport: [Alpha] The tensor transport backend to use. Currently, this only supports one-sided transports like "nixl".
+                _tensor_transport: [Alpha] 要使用的 Tensor 传输后端。目前仅支持如 "nixl" 这样的单侧传输。
         Returns:
             ObjectRef: The object ref the object was put under.
 
@@ -905,7 +922,10 @@ class Worker:
 
     @staticmethod
     def _get_rdt_ids(serialized_objects, object_refs) -> List[str]:
-        """Extract RDT object IDs from serialized objects."""
+        """Extract RDT object IDs from serialized objects.
+
+        从序列化对象中提取 RDT 对象 ID。
+        """
         rdt_ids: List[str] = []
         seen: set = set()
         for obj_ref, (_, metadata, tensor_transport) in zip(
@@ -914,11 +934,14 @@ class Worker:
             if tensor_transport is None:
                 # The object is not an RDT object, so we cannot use other external transport to
                 # fetch it.
+                # 该对象不是 RDT 对象，因此无法使用其他外部传输方式来获取它。
                 continue
 
             # Assures that the upstream task didn't error out. This logic comes from the
             # serialization_context deserialize_objects path. RDT tensors are only used
             # if the metadata field contains that constant
+            # 确保上游任务没有出错。此逻辑来自 serialization_context 的 deserialize_objects 路径。
+            # RDT Tensor 仅在 metadata 字段包含该常量时才使用
             if not metadata:
                 continue
             metadata_fields = metadata.split(b",")
@@ -943,6 +966,8 @@ class Worker:
             # Get the RDT objects from the local store. The _ray_system
             # concurrency group is responsible for fetching these in the
             # background. Here, we just wait for the objects to appear locally.
+            # ObjectRef 通过任务参数传入而非 ray.get 获取。从本地存储获取 RDT 对象。
+            # _ray_system 并发组负责在后台获取这些对象。此处我们只需等待对象出现在本地。
             rdt_objects = {}
             rdt_ids = self._get_rdt_ids(serialized_objects, object_refs)
             if rdt_ids:
@@ -1021,6 +1046,7 @@ class Worker:
 
         # Get any RDT objects. This will launch a fetch per RDT object that is
         # not already local.
+        # 获取所有 RDT 对象。对于每个尚未在本地的 RDT 对象，将启动一次获取操作。
         rdt_objects = {}
         rdt_ids = self._get_rdt_ids(serialized_objects, object_refs)
         if rdt_ids:
@@ -1156,6 +1182,10 @@ class Worker:
         return list(assigned_ids)
 
     def shutdown_rdt_manager(self):
+        """Shut down the RDT manager if it was initialized.
+
+        如果 RDT 管理器已初始化，则将其关闭。
+        """
         if self._rdt_manager:
             self._rdt_manager.shutdown()
 
@@ -3041,6 +3071,8 @@ def put(
         _tensor_transport: [Alpha] The tensor transport to use for the GPU object.
             Currently, this only supports one-sided tensor transports such as "nixl".
             When this is None (default), Ray will use the object store.
+            _tensor_transport: [Alpha] 用于 GPU 对象的 Tensor 传输方式。
+            目前仅支持如 "nixl" 这样的单侧 Tensor 传输。当值为 None（默认）时，Ray 将使用对象存储。
 
     Returns:
         The object ref assigned to this value.
