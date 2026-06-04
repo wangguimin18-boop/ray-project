@@ -14,21 +14,27 @@ if TYPE_CHECKING:
 
 @dataclass
 class CudaIpcCommunicatorMetadata(CommunicatorMetadata):
-    """Metadata for the CUDA IPC communicator."""
+    """Metadata for the CUDA IPC communicator.
+    CUDA IPC 通信器的元数据。"""
 
 
 @dataclass
 class CudaIpcTransportMetadata(TensorTransportMetadata):
-    """Metadata for tensors stored in the GPU object store for CUDA IPC transport."""
+    """Metadata for tensors stored in the GPU object store for CUDA IPC transport.
+    存储在 GPU 对象存储中用于 CUDA IPC 传输的 Tensor 的元数据。"""
 
     # List of tuples, each containing the function and metadata to reconstruct the tensor.
+    # 元组列表，每个元组包含用于重建 Tensor 的函数和元数据。
     cuda_ipc_handles: Optional[List[Any]] = None
     # The IPC handle of the event that is used to synchronize the sender and receiver.
+    # 用于同步发送方和接收方的事件的 IPC handle。
     cuda_ipc_event_ipc_handle: Optional[bytes] = None
     # The index of the GPU that the tensors are on. This requires that the GPU is
     # assigned by Ray, e.g., using @ray.remote(num_gpus=1).
+    # Tensor 所在 GPU 的索引。这要求 GPU 由 Ray 分配，例如使用 @ray.remote(num_gpus=1)。
     ray_gpu_idx: Optional[int] = None
     # The node that the GPU that the tensors are on is on.
+    # Tensor 所在 GPU 所属的节点。
     ray_node_id: Optional[str] = None
 
 
@@ -52,6 +58,9 @@ class CudaIpcTransport(TensorTransportManager):
         # TODO: Ideally we would check if torch.cuda.is_available() on the actor
         # and if so, return True. But we want to avoid blocking in ray.get() in
         # this method since it gets called before submitting an actor task.
+        # TODO: 理想情况下，我们会检查 actor 上 torch.cuda.is_available() 是否可用，
+        # 如果可用则返回 True。但我们希望避免在此方法中使用 ray.get() 造成阻塞，
+        # 因为该方法在提交 actor 任务之前被调用。
         return True
 
     def extract_tensor_transport_metadata(
@@ -76,6 +85,7 @@ class CudaIpcTransport(TensorTransportManager):
 
             # Create an interprocess-shareable CUDA event so that the receiver
             # can wait for the sender's computations to complete.
+            # 创建一个可跨进程共享的 CUDA event，以便接收方可以等待发送方的计算完成。
             event = torch.cuda.Event(interprocess=True)
             torch.cuda.current_stream(device).record_event(event)
 
@@ -156,6 +166,7 @@ class CudaIpcTransport(TensorTransportManager):
             event_ipc_handle = tensor_transport_metadata.cuda_ipc_event_ipc_handle
             if event_ipc_handle is not None:
                 # Reconstruct the event from IPC handle
+                # 从 IPC handle 重建事件
                 event_remote = torch.cuda.Event.from_ipc_handle(
                     device=device, handle=event_ipc_handle
                 )
@@ -163,14 +174,20 @@ class CudaIpcTransport(TensorTransportManager):
                 # Make current stream wait for the sender's event
                 # This ensures sender's computation is complete before we use the tensor
                 # This is asynchronous - doesn't block CPU, only GPU stream
+                # 使当前 stream 等待发送方的 event
+                # 这确保在我们使用 Tensor 之前发送方的计算已经完成
+                # 这是异步操作 - 不阻塞 CPU，仅阻塞 GPU stream
                 torch.cuda.current_stream(device).wait_event(event_remote)
 
             for i, ipc_handle in enumerate(tensor_transport_metadata.cuda_ipc_handles):
                 # Reconstruct the tensor
+                # 重建 Tensor
                 func, args = ipc_handle
                 list_args = list(args)
                 # Fields specified in https://github.com/pytorch/pytorch/blob/1495b35d29512f303ab37780760c5e692158514b/torch/multiprocessing/reductions.py#L155
+                # 字段定义参见上述 PyTorch 源码链接
                 # Update device ID to match current process's device mapping
+                # 更新 device ID 以匹配当前进程的 device 映射
                 if not isinstance(list_args[6], int):
                     raise RuntimeError(
                         f"Expected CUDA IPC tensor reconstruction list_args[6] to be device ID, but got {list_args[6]}. Please file an issue at https://github.com/ray-project/ray/issues/new/choose."
@@ -209,6 +226,7 @@ class CudaIpcTransport(TensorTransportManager):
         communicator_metadata: CudaIpcCommunicatorMetadata,
     ):
         # TODO: Implement CUDA IPC abort transport.
+        # TODO: 实现 CUDA IPC 中止传输功能。
         raise NotImplementedError(
             "CUDA IPC transport does not support abort_transport for now."
         )

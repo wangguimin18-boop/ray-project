@@ -23,7 +23,8 @@ def __ray_send__(
     communicator_meta: CommunicatorMetadata,
     backend: str,
 ):
-    """Helper function that runs on the src actor to send tensors to the dst actor."""
+    """Helper function that runs on the src actor to send tensors to the dst actor.
+    在源 actor 上运行的辅助函数，用于将 tensor 发送到目标 actor。"""
     from ray._private.worker import global_worker
 
     rdt_store = global_worker.rdt_manager._rdt_store
@@ -80,7 +81,8 @@ def __ray_recv__(
     backend: str,
     target_buffers: Optional[List[Any]] = None,
 ):
-    """Helper function that runs on the dst actor to receive tensors from the src actor."""
+    """Helper function that runs on the dst actor to receive tensors from the src actor.
+    在目标 actor 上运行的辅助函数，用于从源 actor 接收 tensor。"""
     from ray._private.worker import global_worker
 
     rdt_store = global_worker.rdt_manager.rdt_store
@@ -89,6 +91,7 @@ def __ray_recv__(
         if target_buffers:
             # Currently only torch tensors are supported as target buffers. We could make this
             # more generic in the future by adding a pluggable buffer validation function.
+            # 目前仅支持 torch tensor 作为目标缓冲区。未来可以通过添加可插拔的缓冲区验证函数来使其更通用。
             validate_tensor_buffers(
                 target_buffers,
                 tensor_transport_meta.tensor_meta,
@@ -104,13 +107,15 @@ def __ray_recv__(
         rdt_store.add_object(obj_id, tensors)
     except Exception as e:
         # Store the error as an RDT object if the recv fails, so waiters will raise the error.
+        # 如果接收失败，将错误存储为 RDT 对象，以便等待者会抛出该错误。
         rdt_store.add_object(obj_id, e)
 
 
 def __ray_abort_transport__(
     self, obj_id: str, communicator_meta: CommunicatorMetadata, backend: str
 ):
-    """Helper function that can run on an actor doing a send or recv to abort the transport."""
+    """Helper function that can run on an actor doing a send or recv to abort the transport.
+    可在执行发送或接收的 actor 上运行的辅助函数，用于中止传输。"""
     tensor_transport_manager = get_tensor_transport_manager(backend)
     tensor_transport_manager.abort_transport(obj_id, communicator_meta)
 
@@ -138,11 +143,13 @@ def __ray_free__(
         rdt_store.pop_object(obj_id)
     except AssertionError:
         # This could fail if this is a retry and it's already been freed.
+        # 如果这是重试操作且对象已被释放，此操作可能会失败。
         pass
 
 
 def __ray_fetch_rdt_object__(self, obj_id: str):
-    """Helper function that runs on the src actor to fetch tensors from the RDT store via the object store."""
+    """Helper function that runs on the src actor to fetch tensors from the RDT store via the object store.
+    在源 actor 上运行的辅助函数，通过对象存储从 RDT 存储中获取 tensor。"""
     from ray._private.worker import global_worker
 
     rdt_store = global_worker.rdt_manager.rdt_store
@@ -153,10 +160,13 @@ def __ray_fetch_rdt_object__(self, obj_id: str):
 @dataclass
 class _RDTObject:
     # A list of tensors representing the RDT object.
+    # 表示 RDT 对象的 tensor 列表。
     data: List[Any]
     # Whether the RDT object is the primary copy.
+    # 该 RDT 对象是否为主副本。
     is_primary: bool
     # If a recv failed, we store the error here.
+    # 如果接收失败，将错误存储在此处。
     error: Optional[Exception] = None
 
 
@@ -170,22 +180,34 @@ class RDTStore:
     thread may get and put objects.
     3. The background CoreWorker server thread, which executes garbage
     collection callbacks that pop objects that are no longer in use.
+
+    此类是线程安全的。GPU 对象存储旨在被以下线程读写：
+    1. 主线程，执行用户代码。此线程可以获取、放入和弹出对象。
+    2. 后台 _ray_system 线程，执行数据传输。此线程可以获取和放入对象。
+    3. 后台 CoreWorker 服务线程，执行垃圾回收回调，弹出不再使用的对象。
     """
 
     def __init__(self):
         # A dictionary that maps from an object ID to a queue of tensor lists.
         #
         # Note: Currently, `_rdt_store` is only supported for Ray Actors.
+        # 从对象 ID 到 tensor 列表队列的映射字典。
+        #
+        # 注意：目前 `_rdt_store` 仅支持 Ray Actor。
         self._rdt_store: Dict[str, deque[_RDTObject]] = defaultdict(deque)
         # Mapping from tensor data pointer to the IDs of objects that contain it.
+        # 从 tensor 数据指针到包含该 tensor 的对象 ID 的映射。
         self._tensor_to_object_ids: Dict[int, Set[str]] = defaultdict[int, Set[str]](
             set
         )
         # Synchronization for the RDT store.
+        # RDT 存储的同步机制。
         self._lock = threading.RLock()
         # Signal when an object becomes present in the object store.
+        # 当对象出现在对象存储中时发出信号。
         self._object_present_cv = threading.Condition(self._lock)
         # Signal when an object is freed from the object store.
+        # 当对象从对象存储中被释放时发出信号。
         self._object_freed_cv = threading.Condition(self._lock)
 
     def has_object(self, obj_id: str) -> bool:
@@ -197,6 +219,7 @@ class RDTStore:
 
     def has_tensor(self, tensor: Any) -> bool:
         # Method only used for testing.
+        # 仅用于测试的方法。
         with self._lock:
             return id(tensor) in self._tensor_to_object_ids
 
@@ -219,6 +242,13 @@ class RDTStore:
             obj_id: The object ID of the RDT object.
             rdt_object: A list of tensors representing the RDT object.
             is_primary: Whether the RDT object is the primary copy.
+
+        将 RDT 对象添加到 RDT 存储中。
+
+        参数:
+            obj_id: RDT 对象的对象 ID。
+            rdt_object: 表示 RDT 对象的 tensor 列表。
+            is_primary: 该 RDT 对象是否为主副本。
         """
         with self._object_present_cv:
             if isinstance(rdt_object, Exception):
@@ -229,6 +259,7 @@ class RDTStore:
                 for tensor in rdt_object:
                     self._tensor_to_object_ids[id(tensor)].add(obj_id)
                 # Append to the queue instead of overwriting
+                # 追加到队列而不是覆盖
                 self._rdt_store[obj_id].append(
                     _RDTObject(
                         rdt_object,
@@ -247,6 +278,11 @@ class RDTStore:
             # existing primary — do not re-store — and return metadata
             # derived from it so the metadata matches what `__ray_send__`
             # will actually transmit.
+            # 主副本条目可能已从同一任务的先前尝试中存在
+            # （例如，一个成功并填充了 RDT 存储但其回复丢失的任务，
+            # 之后被重试）。保留现有的主副本——不要重新存储——
+            # 并返回从其派生的元数据，以便元数据与 `__ray_send__`
+            # 实际传输的内容一致。
             queue = self._rdt_store.get(obj_id)
             if queue:
                 tensors_to_describe = queue[0].data
@@ -289,6 +325,17 @@ class RDTStore:
 
         Returns:
             The tensors in the RDT object.
+
+        原子性地等待 RDT 对象出现在 RDT 存储中，然后获取它。
+        如果对象在可选的超时时间后仍未出现，则抛出 TimeoutError。
+
+        参数:
+            obj_id: 要等待的对象 ID。
+            timeout: 等待对象出现在 RDT 存储中的最大时间（秒）。
+                如果未指定，则无限期等待。
+
+        返回:
+            RDT 对象中的 tensor。
         """
         with self._lock:
             self._wait_object(obj_id, timeout)
@@ -308,6 +355,17 @@ class RDTStore:
 
         Returns:
             The RDT object.
+
+        原子性地等待 RDT 对象出现在 RDT 存储中，然后弹出它。
+        如果对象在可选的超时时间后仍未出现，则抛出 TimeoutError。
+
+        参数:
+            obj_id: 要等待的对象 ID。
+            timeout: 等待对象出现在 RDT 存储中的最大时间（秒）。
+                如果未指定，则无限期等待。
+
+        返回:
+            RDT 对象。
         """
         with self._lock:
             self._wait_object(obj_id, timeout)
@@ -322,6 +380,14 @@ class RDTStore:
             obj_id: The object ID to wait for.
             timeout: The maximum time in seconds to wait for the object to be
                 present in the RDT store. If not specified, wait indefinitely.
+
+        等待 RDT 对象出现在 RDT 存储中的辅助方法。
+        如果对象在可选的超时时间后仍未出现，则抛出 TimeoutError。
+
+        参数:
+            obj_id: 要等待的对象 ID。
+            timeout: 等待对象出现在 RDT 存储中的最大时间（秒）。
+                如果未指定，则无限期等待。
         """
         with self._object_present_cv:
             if not self._object_present_cv.wait_for(
@@ -351,6 +417,8 @@ class RDTStore:
     def wait_tensor_freed(self, tensor: Any, timeout: Optional[float] = None) -> None:
         """
         Wait for the object to be freed from the RDT store.
+
+        等待对象从 RDT 存储中被释放。
         """
         with self._object_freed_cv:
             if not self._object_freed_cv.wait_for(
@@ -364,7 +432,10 @@ class RDTStore:
     def get_num_objects(self) -> int:
         """
         Return the number of objects in the RDT store.
+
+        返回 RDT 存储中的对象数量。
         """
         with self._lock:
             # Count total objects across all queues
+            # 计算所有队列中的对象总数
             return sum(len(queue) for queue in self._rdt_store.values())

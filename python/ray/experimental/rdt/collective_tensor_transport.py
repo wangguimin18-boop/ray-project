@@ -14,16 +14,21 @@ if TYPE_CHECKING:
 
 @dataclass
 class CollectiveTransportMetadata(TensorTransportMetadata):
-    """Metadata for tensors stored in the GPU object store for collective transport."""
+    """Metadata for tensors stored in the GPU object store for collective transport.
+
+    用于 collective transport 的、存储在 GPU 对象存储中的 Tensor 元数据。
+    """
 
 
 @dataclass
 class CollectiveCommunicatorMetadata(CommunicatorMetadata):
     """Metadata for the collective communicator (e.g. NCCL, GLOO).
 
+    collective 通信器（如 NCCL、GLOO）的元数据。
+
     Args:
-        src_rank: The rank of the source actor.
-        dst_rank: The rank of the destination actor.
+        src_rank: The rank of the source actor.  源 actor 的 rank。
+        dst_rank: The rank of the destination actor.  目标 actor 的 rank。
     """
 
     communicator_name: str = ""
@@ -87,6 +92,7 @@ class CollectiveTensorTransport(TensorTransportManager):
             backend=backend,
         )
         # TODO(kevin85421): Support multiple communicators.
+        # TODO(kevin85421): 支持多个通信器。
         if len(communicators) == 0:
             raise ValueError(
                 f"No communicators found for actors {src_actor} and {dst_actor}. "

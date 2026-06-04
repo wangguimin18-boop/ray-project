@@ -26,18 +26,28 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class NixlCommunicatorMetadata(CommunicatorMetadata):
-    """Metadata for the NIXL communicator."""
+    """Metadata for the NIXL communicator.
+
+    NIXL 通信器的元数据。"""
 
 
 @dataclass
 class NixlTransportMetadata(TensorTransportMetadata):
     """Metadata for tensors stored in the GPU object store for NIXL transport.
 
+    存储在 GPU 对象存储中用于 NIXL 传输的 Tensor 元数据。
+
     Args:
         nixl_serialized_descs: Serialized tensor descriptors for NIXL transport.
         nixl_agent_meta: The additional metadata of the remote NIXL agent.
         nixl_agent_name: The name of the NIXL agent.
         nixl_agent_meta_version: The version of the NIXL agent metadata.
+
+    参数：
+        nixl_serialized_descs: 用于 NIXL 传输的序列化 Tensor 描述符。
+        nixl_agent_meta: 远程 NIXL agent 的附加元数据。
+        nixl_agent_name: NIXL agent 的名称。
+        nixl_agent_meta_version: NIXL agent 元数据的版本。
     """
 
     nixl_serialized_descs: Optional[bytes] = None
@@ -54,8 +64,11 @@ class TensorDesc:
     # nixlRegDList handle, or None for pool-managed tensors (pool memory is
     # registered once at pool creation, so individual tensors don't need their
     # own NIXL registration).
+    # nixlRegDList 句柄，对于池管理的 Tensor 为 None（池内存
+    # 在池创建时一次性注册，因此单个 Tensor 不需要自己的 NIXL 注册）。
     reg_desc: Any
     # tracks the number of NIXL metadata containing the tensor.
+    # 跟踪包含该 Tensor 的 NIXL 元数据数量。
     metadata_count: int
 
 
@@ -63,7 +76,11 @@ class TensorDesc:
 class NixlFetchRequest(FetchRequest):
     """NIXL-specific FetchRequest carrying the async transfer state.
 
+    携带异步传输状态的 NIXL 专用 FetchRequest。
+
     Returned by fetch_multiple_tensors and consumed by wait_fetch_complete.
+
+    由 fetch_multiple_tensors 返回，由 wait_fetch_complete 消费。
 
     Args:
         obj_id: Inherited. The object ID for the transfer, used for abort checks and cleanup.
@@ -72,6 +89,14 @@ class NixlFetchRequest(FetchRequest):
         nixl_agent: Reference to the NIXL agent.
         remote_name: Name of the remote NIXL agent.
         remove_tensor_descs: Whether to remove tensor descriptors from the cache during cleanup.
+
+    参数：
+        obj_id: 继承。传输的对象 ID，用于中止检查和清理。
+        tensors: 继承。预分配的输出 Tensor（在传输开始前填充）。
+        xfer_handle: NIXL 传输请求句柄。
+        nixl_agent: NIXL agent 的引用。
+        remote_name: 远程 NIXL agent 的名称。
+        remove_tensor_descs: 清理时是否从缓存中移除 Tensor 描述符。
     """
 
     xfer_handle: Any = None
@@ -94,23 +119,34 @@ class NixlFetchRequest(FetchRequest):
 class NixlTensorTransport(TensorTransportManager):
     def __init__(self):
         # This is lazily initialized because it requires NIXL to actually be installed and we want to allow an owner that is just coordinating to not need to have NIXL installed.
+        # 延迟初始化，因为它要求 NIXL 实际安装，并且我们希望仅做协调的 owner 不需要安装 NIXL。
         self._nixl_agent = None
         self._aborted_transfer_obj_ids = set()
         self._aborted_transfer_obj_ids_lock = threading.Lock()
         # Mapping from tensor storage data pointer to the NIXL descriptor and reference count.
         # Unlike _managed_meta_nixl, we only deregister tensors when ALL metadata containing the tensor is freed.
         # For pool-managed tensors, reg_desc is None and the pool block is returned instead of deregistering.
+        # 从 Tensor 存储数据指针到 NIXL 描述符和引用计数的映射。
+        # 与 _managed_meta_nixl 不同，只有当包含该 Tensor 的所有元数据被释放时才注销 Tensor。
+        # 对于池管理的 Tensor，reg_desc 为 None，池内存块被归还而不是注销。
         self._tensor_desc_cache: Dict[int, TensorDesc] = {}
         # Mapping from object ID to the NIXL managed meta.
         # The lifetime of _managed_meta_nixl is tied to the object ref and freed when the ref goes out of scope.
+        # 从对象 ID 到 NIXL 管理元数据的映射。
+        # _managed_meta_nixl 的生命周期与 ObjectRef 绑定，当引用超出作用域时被释放。
         self._managed_meta_nixl: Dict[str, Any] = {}
         # Lock protecting _tensor_desc_cache and _managed_meta_nixl since they can be
         # accessed from the main task execution thread or the _ray_system thread.
+        # 保护 _tensor_desc_cache 和 _managed_meta_nixl 的锁，因为它们可以从
+        # 主任务执行线程或 _ray_system 线程访问。
         self._cache_lock = threading.RLock()
         # LRU cache of remote agent names. When full, the least
         # recently used remote agent is evicted and remove_remote_agent is called.
+        # 远程 agent 名称的 LRU 缓存。当缓存满时，最久未使用的远程 agent
+        # 被移除，并调用 remove_remote_agent。
         self._remote_agents: OrderedDict = OrderedDict()
         # Increment the version whenever memory is deregistered.
+        # 每次内存注销时递增版本号。
         self._nixl_agent_meta_version = 0
         self._memory_pool: Optional[MemoryPoolManager] = None
 
@@ -126,11 +162,16 @@ class NixlTensorTransport(TensorTransportManager):
         return True
 
     def register_nixl_memory(self, tensor: "torch.Tensor") -> None:
-        """Registers the tensor's memory with NIXL and bumps the reference count so the memory region is never deregistered."""
+        """Registers the tensor's memory with NIXL and bumps the reference count so the memory region is never deregistered.
+
+        将 Tensor 的内存注册到 NIXL 并增加引用计数，使内存区域永远不会被注销。
+        """
         self._add_tensor_descs([tensor])
 
     def register_nixl_memory_pool(self, size: int, device: "torch.device") -> None:
         """Pre-allocates a memory pool and registers it with NIXL.
+
+        预分配内存池并将其注册到 NIXL。
 
         Args:
             size: Size of the memory pool in bytes.
@@ -138,6 +179,13 @@ class NixlTensorTransport(TensorTransportManager):
 
         Raises:
             ValueError: If a memory pool is already registered.
+
+        参数：
+            size: 内存池的大小，以字节为单位。
+            device: 分配内存池的设备（cpu 或 cuda）。
+
+        异常：
+            ValueError: 如果已注册了内存池。
         """
         if self._memory_pool is not None:
             raise ValueError(
@@ -152,12 +200,17 @@ class NixlTensorTransport(TensorTransportManager):
     def deregister_nixl_memory(self, tensor: "torch.Tensor") -> None:
         """Decrements the reference count for the tensor's NIXL memory registration.
         If the count reaches 0, the memory is deregistered from NIXL.
+
+        递减 Tensor 的 NIXL 内存注册引用计数。
+        如果计数达到 0，则从 NIXL 注销该内存。
         """
         self._remove_tensor_descs([tensor])
 
     def get_nixl_agent(self):
         """
         Creates a NIXL agent with UCX backend if not already created.
+
+        如果尚未创建，则创建一个带有 UCX 后端的 NIXL agent。
         """
         if self._nixl_agent is not None:
             return self._nixl_agent
@@ -169,6 +222,7 @@ class NixlTensorTransport(TensorTransportManager):
         actor_id = ctx.get_actor_id()
         if actor_id is None:
             # If the actor id is None, it means the current process is a driver.
+            # 如果 actor id 为 None，表示当前进程是 driver。
             import uuid
 
             actor_id = f"RAY-DRIVER-{uuid.uuid4()}"
@@ -178,10 +232,12 @@ class NixlTensorTransport(TensorTransportManager):
 
     def actor_has_tensor_transport(self, actor: "ray.actor.ActorHandle") -> bool:
         # TODO(dayshah): This is called on a .remote RDT call, so it's quite expensive.
+        # TODO(dayshah): 这是在 .remote RDT 调用上执行的，因此开销较大。
         def __ray_actor_has_tensor_transport__(
             self: "ray.actor.ActorHandle",
         ) -> bool:
             # Check if nixl is installed
+            # 检查 nixl 是否已安装
             try:
                 from ray.experimental.rdt.util import (
                     get_tensor_transport_manager,
@@ -212,6 +268,8 @@ class NixlTensorTransport(TensorTransportManager):
             if rdt_object:
                 # We assume all tensors in one RDT object have the same device type,
                 # but we don't assume they're all on the same device.
+                # 我们假设一个 RDT 对象中的所有 Tensor 具有相同的设备类型，
+                # 但不假设它们都在同一设备上。
                 devices = set()
                 device = rdt_object[0].device
                 for t in rdt_object:
@@ -228,6 +286,8 @@ class NixlTensorTransport(TensorTransportManager):
                 if device.type == "cuda":
                     # We have to synchronize before memory registration to assure the
                     # object has been created because nixl doesn't guarantee it will.
+                    # 我们必须在内存注册之前同步，以确保对象已被创建，
+                    # 因为 nixl 不保证这一点。
                     for dev in devices:
                         torch.cuda.synchronize(dev)
 
@@ -235,6 +295,8 @@ class NixlTensorTransport(TensorTransportManager):
                 # Use the pool only when every tensor lives on the exact same
                 # device as the pool, AND no tensor already has an existing
                 # NIXL registration (via register_nixl_memory).
+                # 只有当每个 Tensor 都位于与池完全相同的设备上，
+                # 且没有 Tensor 已有现有的 NIXL 注册（通过 register_nixl_memory）时才使用池。
                 pool_eligible = (
                     self._memory_pool is not None
                     and all(
@@ -297,6 +359,20 @@ class NixlTensorTransport(TensorTransportManager):
 
         Returns:
             A NixlFetchRequest carrying the async transfer state.
+
+        启动多个 Tensor 的异步传输。
+
+        此方法触发传输但不等待完成。
+        调用 wait_fetch_complete(fetch_request) 以等待传输完成并获取 Tensor。
+
+        参数：
+            obj_id: 传输的对象 ID。
+            tensor_transport_metadata: Tensor 传输的元数据。
+            communicator_metadata: 通信器的元数据。
+            target_buffers: 可选的预分配缓冲区，用于接收 Tensor。
+
+        返回：
+            携带异步传输状态的 NixlFetchRequest。
         """
         from ray.experimental.rdt.util import (
             create_empty_tensors_from_metadata,
@@ -327,6 +403,7 @@ class NixlTensorTransport(TensorTransportManager):
             nixl_agent = self.get_nixl_agent()
             remote_xfer_descs = nixl_agent.deserialize_descs(nixl_serialized_descs)
             # This creates a placeholder for the tensor in the tensor_desc_cache even though it doesn't have an object ref for caching purposes.
+            # 这在 tensor_desc_cache 中为 Tensor 创建了一个占位符，即使它没有用于缓存目的的 ObjectRef。
             self._add_tensor_descs(tensors)
             added_tensor_descs = True
             local_xfer_descs = nixl_agent.get_xfer_descs(tensors)
@@ -337,12 +414,16 @@ class NixlTensorTransport(TensorTransportManager):
             )
 
             # Nixl agent reuse is enabled.
+            # NIXL agent 重用已启用。
             if NIXL_REMOTE_AGENT_CACHE_MAXSIZE > 0:
                 if remote_name in self._remote_agents:
                     # If the remote agent metadata version is different from the cached one,
                     # it means there was memory deregistered. We need to remove the remote agent
                     # before adding it, because `nixlRemoteSection` currently does not support
                     # updating descriptor list in such a case (there is potential memory overlap).
+                    # 如果远程 agent 元数据版本与缓存版本不同，
+                    # 说明有内存被注销了。我们需要在添加之前移除远程 agent，
+                    # 因为 `nixlRemoteSection` 当前不支持在这种情况下更新描述符列表（可能存在内存重叠）。
                     if remote_agent_meta_version != self._remote_agents[remote_name]:
                         nixl_agent.remove_remote_agent(remote_name)
                     self._remote_agents.move_to_end(remote_name)
@@ -381,6 +462,8 @@ class NixlTensorTransport(TensorTransportManager):
             )
             # TODO(swang): There is a circular import error because ray.util
             # currently depends on ray.experimental.internal_kv.
+            # TODO(swang): 存在循环导入错误，因为 ray.util
+            # 目前依赖于 ray.experimental.internal_kv。
             from ray.exceptions import RayDirectTransportError
 
             raise RayDirectTransportError(
@@ -404,6 +487,20 @@ class NixlTensorTransport(TensorTransportManager):
         Raises:
             RayDirectTransportError: If the transfer failed.
             TimeoutError: If the timeout is exceeded.
+
+        等待先前发起的获取操作完成并返回 Tensor。
+
+        参数：
+            fetch_request: fetch_multiple_tensors 返回的 NixlFetchRequest。
+            timeout: 最大等待时间（秒）。-1 表示无限等待。
+                0 表示如果未就绪则立即返回。
+
+        返回：
+            已传输的 Tensor 列表。
+
+        异常：
+            RayDirectTransportError: 如果传输失败。
+            TimeoutError: 如果超出超时时间。
         """
         assert isinstance(fetch_request, NixlFetchRequest)
         obj_id = fetch_request.obj_id
@@ -413,6 +510,7 @@ class NixlTensorTransport(TensorTransportManager):
 
         try:
             # Check the state of the transfer continuously.
+            # 持续检查传输状态。
             deadline = None if timeout < 0 else time.monotonic() + timeout
             while True:
                 state = self.get_nixl_agent().check_xfer_state(
@@ -432,6 +530,7 @@ class NixlTensorTransport(TensorTransportManager):
                                 f"NIXL transfer aborted for object id: {obj_id}"
                             )
                     time.sleep(0.001)  # Avoid busy waiting
+                    # 避免忙等待
                 elif state == "DONE":
                     break
 
@@ -454,14 +553,21 @@ class NixlTensorTransport(TensorTransportManager):
         remote_name: Optional[str],
         remove_tensor_descs: bool,
     ) -> None:
-        """Cleans up resources after a transfer completes or fails."""
+        """Cleans up resources after a transfer completes or fails.
+
+        传输完成或失败后清理资源。
+        """
         # We could raise errors or NIXL could raise errors like NIXL_ERR_REMOTE_DISCONNECT,
         # so doing best effort cleanup.
+        # 我们可能抛出错误，或 NIXL 可能抛出类似 NIXL_ERR_REMOTE_DISCONNECT 的错误，
+        # 因此进行尽力清理。
         nixl_agent = self._nixl_agent
         if nixl_agent is None:
             return
         # We could raise errors or NIXL could raise errors like NIXL_ERR_REMOTE_DISCONNECT,
         # so doing best effort cleanup.
+        # 我们可能抛出错误，或 NIXL 可能抛出类似 NIXL_ERR_REMOTE_DISCONNECT 的错误，
+        # 因此进行尽力清理。
         with self._aborted_transfer_obj_ids_lock:
             self._aborted_transfer_obj_ids.discard(obj_id)
         if xfer_handle:
@@ -478,7 +584,10 @@ class NixlTensorTransport(TensorTransportManager):
         communicator_metadata: CommunicatorMetadata,
         target_buffers: Optional[List["torch.Tensor"]] = None,
     ) -> List["torch.Tensor"]:
-        """Receives multiple tensors synchronously."""
+        """Receives multiple tensors synchronously.
+
+        同步接收多个 Tensor。
+        """
         fetch_request = self.fetch_multiple_tensors(
             obj_id, tensor_transport_metadata, communicator_metadata, target_buffers
         )
@@ -522,6 +631,8 @@ class NixlTensorTransport(TensorTransportManager):
     def _get_meta(self, object_id: str) -> Optional[NixlTransportMetadata]:
         """
         Get the NIXL transport metadata for the given object ID if it exists
+
+        如果存在，获取给定对象 ID 的 NIXL 传输元数据
         """
         with self._cache_lock:
             if object_id in self._managed_meta_nixl:
@@ -531,6 +642,8 @@ class NixlTensorTransport(TensorTransportManager):
     def _put_meta(self, object_id: str, meta: NixlTransportMetadata):
         """
         Store the NIXL transport metadata for the given object ID
+
+        存储给定对象 ID 的 NIXL 传输元数据
         """
         with self._cache_lock:
             self._managed_meta_nixl[object_id] = meta
@@ -540,6 +653,9 @@ class NixlTensorTransport(TensorTransportManager):
         Decrements the reference count for each tensor. If the count reaches 0,
         traditionally-registered memory is deregistered from NIXL, while
         pool-managed blocks (reg_desc is None) are returned to the pool.
+
+        递减每个 Tensor 的引用计数。如果计数达到 0，
+        传统注册的内存将从 NIXL 注销，而池管理的内存块（reg_desc 为 None）则归还给池。
         """
         with self._cache_lock:
             pool_return_tensors: List["torch.Tensor"] = []
@@ -553,10 +669,12 @@ class NixlTensorTransport(TensorTransportManager):
                     self._tensor_desc_cache.pop(key)
                     if tensor_desc.reg_desc is not None:
                         # Traditional path: deregister NIXL memory.
+                        # 传统路径：注销 NIXL 内存。
                         self.get_nixl_agent().deregister_memory(tensor_desc.reg_desc)
                         self._nixl_agent_meta_version += 1
                     else:
                         # Pool path: return block to pool.
+                        # 池路径：将内存块归还给池。
                         pool_return_tensors.append(tensor)
             if pool_return_tensors and self._memory_pool is not None:
                 self._memory_pool.free_tensors(pool_return_tensors)
@@ -565,6 +683,9 @@ class NixlTensorTransport(TensorTransportManager):
         """
         If this is the first time the tensor is being registered, we register the
         full underlying pytorch storage object with NIXL. Otherwise, we increment the reference count.
+
+        如果这是 Tensor 第一次被注册，我们将完整的底层 PyTorch 存储对象注册到 NIXL。
+        否则，我们递增引用计数。
         """
         with self._cache_lock:
             for tensor in tensors:
@@ -577,11 +698,19 @@ class NixlTensorTransport(TensorTransportManager):
                 # NOTE: we clip this to 0 since the GPU ID is not used for
                 # CPU tensors, and get_device returns -1 for CPU tensors.
                 # This triggers an error in nixl since it expects an unsigned.
+                # Tensor 所在设备的 GPU ID。
+                # 注意：我们将其裁剪为 0，因为 GPU ID 不用于 CPU Tensor，
+                # 而 get_device 对 CPU Tensor 返回 -1。
+                # 这会在 nixl 中触发错误，因为它期望无符号值。
                 gpu_id = max(tensor.get_device(), 0)
                 # Registering the full underlying pytorch storage object by
                 # constructing a memory region with the data pointer, size,
                 # GPU ID, and meta info. Doing the equivalent of what nixl
                 # does for pytorch tensors internally:
+                # https://github.com/ai-dynamo/nixl/blob/dd23ef01bd366aef89fa552f2b042f89a0b45fcb/src/api/python/_api.py#L1034
+                # 通过构造包含数据指针、大小、GPU ID 和元信息的内存区域，
+                # 注册完整的底层 PyTorch 存储对象。执行与 nixl 内部对
+                # PyTorch Tensor 所做的等效操作：
                 # https://github.com/ai-dynamo/nixl/blob/dd23ef01bd366aef89fa552f2b042f89a0b45fcb/src/api/python/_api.py#L1034
                 try:
                     reg_desc = self.get_nixl_agent().register_memory(
@@ -611,7 +740,10 @@ class NixlTensorTransport(TensorTransportManager):
                 self._tensor_desc_cache[key] = TensorDesc(reg_desc, 1)
 
     def _tensor_memory_registered(self, t: "torch.Tensor") -> bool:
-        """Check if the tensor's memory has been registered with NIXL."""
+        """Check if the tensor's memory has been registered with NIXL.
+
+        检查 Tensor 的内存是否已注册到 NIXL。
+        """
         entry = self._tensor_desc_cache.get(t.untyped_storage().data_ptr())
         return entry is not None and entry.reg_desc is not None
 
@@ -628,6 +760,18 @@ class NixlTensorTransport(TensorTransportManager):
         constraint as the traditional (non-pool) path and is mitigated by the
         fact that pool blocks hold a reference to pool memory, not the source
         storage.
+
+        将池管理的 Tensor 条目添加到统一的 _tensor_desc_cache 中。
+
+        池管理的 Tensor 使用 reg_desc=None，因为池内存
+        在池创建时一次性注册。metadata_count 跟踪引用计数，
+        与传统 Tensor 相同。
+
+        注意：条目以源 Tensor 的存储 ``data_ptr()`` 为键。
+        如果 PyTorch 在 GC 运行前释放并重新分配该存储地址，
+        过期的缓存条目可能映射到无关的 Tensor。这与传统（非池）
+        路径的约束相同，并通过池内存块持有对池内存而非源存储
+        的引用来缓解。
         """
         with self._cache_lock:
             for tensor in tensors:
@@ -644,10 +788,17 @@ class NixlTensorTransport(TensorTransportManager):
 
         Handles rollback of newly allocated pool blocks if get_xfer_descs
         fails, without disturbing cached blocks from prior calls.
+
+        为 Tensor 分配池内存并返回 NIXL 传输描述符。
+
+        如果 get_xfer_descs 失败，处理新分配的池内存块的回滚，
+        不影响先前调用的缓存块。
         """
         pool = self._memory_pool
         # Remember which storages already have a pool block (cache hits)
         # so we don't free them on rollback.
+        # 记住哪些存储已有池内存块（缓存命中），
+        # 以便在回滚时不释放它们。
         pre_existing = {
             t.untyped_storage().data_ptr() for t in tensors if pool.has_block(t)
         }
@@ -656,6 +807,7 @@ class NixlTensorTransport(TensorTransportManager):
             xfer_descs = self._nixl_agent.get_xfer_descs(pool_tensor_views)
         except Exception:
             # Only free newly allocated blocks, not cache hits.
+            # 只释放新分配的内存块，不释放缓存命中的块。
             new_tensors = [
                 t for t in tensors if t.untyped_storage().data_ptr() not in pre_existing
             ]
