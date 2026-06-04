@@ -437,13 +437,14 @@ a2.consume.remote(ref)             # 步骤 2
 
 ```mermaid
 sequenceDiagram
-    participant Driver as Driver (Owner)
-    participant SrcActor as Source Actor
-    participant DstActor as Destination Actor
-    participant RDTMgr as RDTManager
-    participant RDTStoreSrc as RDTStore (Src)
-    participant RDTStoreDst as RDTStore (Dst)
-    participant Transport as TensorTransport(NCCL/GLOO)
+    %% 参与者声明：保留英文标识符，添加中文角色描述
+    participant Driver as "Driver (Owner/持有方)"
+    participant SrcActor as "Source Actor/源 Actor"
+    participant DstActor as "Destination Actor/目标 Actor"
+    participant RDTMgr as "RDTManager/调度中枢"
+    participant RDTStoreSrc as "RDTStore (Src/源端)"
+    participant RDTStoreDst as "RDTStore (Dst/目标端)"
+    participant Transport as "TensorTransport(NCCL/GLOO/集合通信)"
 
     Note over Driver: 步骤1: a1.get_tensor.remote()
     Driver->>RDTMgr: add_rdt_ref(ref, src_actor, "nccl") — 注册引用，meta=None
@@ -463,7 +464,7 @@ sequenceDiagram
     SrcActor->>RDTStoreSrc: get_object → 取出 Tensor
     SrcActor->>Transport: send_multiple_tensors → collective.send
     DstActor->>Transport: recv_multiple_tensors → collective.recv
-    Transport-->>DstActor: received tensors
+    Transport-->>DstActor: received tensors/已接收 Tensor
     DstActor->>RDTStoreDst: add_object — 存入目标端
 
     Note over DstActor: 任务反序列化：合并 CPU 数据 + Tensor
@@ -515,11 +516,12 @@ tensors = ray.get(ref)  # 不经对象存储，NIXL RDMA 直拉
 
 ```mermaid
 sequenceDiagram
-    participant Driver as Driver (Owner)
-    participant SrcActor as Source Actor
-    participant DstActor as Destination Actor
-    participant RDTMgr as RDTManager
-    participant NixlTransport as NixlTensorTransport
+    %% 参与者声明：保留英文标识符，添加中文角色描述
+    participant Driver as "Driver (Owner/持有方)"
+    participant SrcActor as "Source Actor/源 Actor"
+    participant DstActor as "Destination Actor/目标 Actor"
+    participant RDTMgr as "RDTManager/调度中枢"
+    participant NixlTransport as "NixlTensorTransport/NIXL传输后端"
 
     Note over Driver: a1.get_tensor.remote()
     Driver->>RDTMgr: add_rdt_ref(ref, src_actor, "nixl")
@@ -539,7 +541,7 @@ sequenceDiagram
     DstActor->>NixlTransport: recv_multiple_tensors → fetch + wait
     Note over NixlTransport: fetch: 创建缓冲区→反序列化远程描述符→注册远程Agent→initialize_xfer("READ")→transfer
     Note over NixlTransport: wait: 轮询 check_xfer_state 直到 DONE
-    NixlTransport-->>DstActor: received tensors via RDMA READ
+    NixlTransport-->>DstActor: received tensors via RDMA READ/通过 RDMA READ 接收的 Tensor
 ```
 
 从时序图可以看到关键差异：
@@ -560,29 +562,52 @@ sequenceDiagram
 
 ```mermaid
 stateDiagram-v2
+    %% 状态名声明：保留英文标识符，添加中文显示名
+    state "Created/已创建" as Created
+    state "MetaPending/元数据待定" as MetaPending
+    state "MetaReady/元数据就绪" as MetaReady
+    state "QueuedTransfer/排队传输" as QueuedTransfer
+    state "Transferring/传输中" as Transferring
+    state "Received/已接收" as Received
+    state "Consumed/已消费" as Consumed
+    state "QueuedFree/排队释放" as QueuedFree
+    state "Freeing/释放中" as Freeing
+    state "Aborted/已中止" as Aborted
+
     [*] --> Created : ray.remote 或 ray.put
+    %% add_rdt_ref (meta=None) → 注册引用，元数据为空
     Created --> MetaPending : add_rdt_ref (meta=None)
+    %% extract + set_tensor_transport_metadata → 提取 + 设置 Tensor 传输元数据
     MetaPending --> MetaReady : extract + set_tensor_transport_metadata
 
     MetaPending --> QueuedTransfer : meta未就绪时排队
     QueuedTransfer --> Transferring : meta就绪后触发
+    %% trigger_out_of_band_tensor_transfer → 触发带外 Tensor 传输
     MetaReady --> Transferring : trigger_out_of_band_tensor_transfer
 
     state Transferring {
+        %% 复合状态内部子状态声明
+        state "SendRecv/双侧收发" as SendRecv
+        state "RecvOnly/仅接收" as RecvOnly
+        state "TransferComplete/传输完成" as TransferComplete
         [*] --> SendRecv : 双侧: __ray_send__ + __ray_recv__
-        [*] --> RecvOnly : 单侧: __ray_recv__ only
+        [*] --> RecvOnly : 单侧: __ray_recv__ 仅
         SendRecv --> TransferComplete : 监控线程检查完成
         RecvOnly --> TransferComplete : 监控线程检查完成
     }
 
+    %% RDTStore.add_object → 存入接收副本
     Transferring --> Received : RDTStore.add_object
+    %% wait_and_pop_object → 等待并取出对象
     Received --> Consumed : wait_and_pop_object
 
     MetaReady --> QueuedFree : free在meta就绪前到达
     QueuedFree --> Freeing : meta就绪后执行free
+    %% free_object_primary_copy → 释放主副本
     MetaReady --> Freeing : free_object_primary_copy
     Transferring --> Aborted : 监控线程检测失败/超时
 
+    %% __ray_free__（释放指令）→ garbage_collect（垃圾回收）
     Freeing --> [*] : __ray_free__ → garbage_collect
     Consumed --> [*]
 ```
