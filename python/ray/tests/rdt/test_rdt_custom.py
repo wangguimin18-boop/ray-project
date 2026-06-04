@@ -59,6 +59,7 @@ class SharedMemoryTransport(TensorTransportManager):
         serialized_rdt_object = pickle.dumps(rdt_object)
         size = len(serialized_rdt_object)
         # Shm name can't be as long as the obj_id, so we truncate it.
+        # 共享内存名称不能和 obj_id 一样长，因此我们截断它。
         name = obj_id[:20]
         shm_obj = shm.SharedMemory(name=name, create=True, size=size)
         shm_obj.buf[:size] = serialized_rdt_object
@@ -137,6 +138,10 @@ def test_register_and_use_custom_transport(ray_start_regular):
     # explicitly pickle the transport class in this module by value.
     # Note that this doesn't happen if you define the transport class on the
     # driver, something with pytest convinces cloudpickle to pickle by ref.
+    # 在测试文件中定义的类会按引用方式 pickle，因此我们需要
+    # 明确地按值方式 pickle 此模块中的 transport 类。
+    # 注意，如果你在 driver 上定义 transport 类则不会出现此问题，
+    # pytest 的某些机制会使得 cloudpickle 按引用方式 pickle。
     from ray import cloudpickle
 
     cloudpickle.register_pickle_by_value(sys.modules[SharedMemoryTransport.__module__])
@@ -147,6 +152,7 @@ def test_register_and_use_custom_transport(ray_start_regular):
     assert ray.get(result) == 6
 
     # Test that non-rdt methods that return the data type still work.
+    # 测试非 RDT 方法返回该数据类型时仍然正常工作。
     ref = actors[0].non_rdt_echo.remote(numpy.array([1, 2, 3]))
     result = actors[1].sum.remote(ref)
     assert ray.get(result) == 6

@@ -1,4 +1,7 @@
-"""Unit tests for RDTManager."""
+"""Unit tests for RDTManager.
+
+RDTManager 的单元测试。
+"""
 import re
 import sys
 from dataclasses import dataclass
@@ -27,7 +30,10 @@ class _TestCommMeta(CommunicatorMetadata):
 
 @dataclass
 class _TrackedFetchRequest(FetchRequest):
-    """FetchRequest subclass that records when it is deleted."""
+    """FetchRequest subclass that records when it is deleted.
+
+    FetchRequest 的子类，记录其被删除的时机。
+    """
 
     def __del__(self):
         _PipelineCheckingTransport.deleted_requests.add(self.obj_id)
@@ -42,6 +48,15 @@ class _PipelineCheckingTransport(TensorTransportManager):
 
     call_log is a class-level list so the singleton instance created by
     get_tensor_transport_manager records to the same list across all tests.
+
+    伪单侧传输，记录 fetch/wait 调用的顺序。
+
+    每次 fetch_multiple_tensors 调用会将 ("fetch", obj_id) 添加到 call_log，
+    每次 wait_fetch_complete 调用会将 ("wait", obj_id) 添加到 call_log。
+    测试断言所有 fetch 条目出现在任何 wait 条目之前。
+
+    call_log 是类级别的列表，因此由 get_tensor_transport_manager 创建的
+    单例实例会在所有测试中记录到同一个列表。
     """
 
     call_log: List = []
@@ -105,7 +120,10 @@ class _PipelineCheckingTransport(TensorTransportManager):
 
 
 class _TwoSidedTransport(TensorTransportManager):
-    """Fake two-sided transport (e.g. NCCL/GLOO style)."""
+    """Fake two-sided transport (e.g. NCCL/GLOO style).
+
+    伪双侧传输（例如 NCCL/GLOO 风格）。
+    """
 
     def tensor_transport_backend(self) -> str:
         return _TWO_SIDED_BACKEND_NAME
@@ -145,18 +163,23 @@ class _TwoSidedTransport(TensorTransportManager):
 
 # ---------------------------------------------------------------------------
 # Fixtures
+# 测试夹具
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module", autouse=True)
 def register_test_transports():
-    """Register both test transports once for the lifetime of the module."""
+    """Register both test transports once for the lifetime of the module.
+
+    在模块生命周期内注册两个测试传输。
+    """
     try:
         register_tensor_transport(
             _BACKEND_NAME, ["cpu"], _PipelineCheckingTransport, list
         )
     except ValueError:
         pass  # already registered (e.g. test module loaded more than once)
+        # 已注册（例如测试模块被多次加载）
     try:
         register_tensor_transport(
             _TWO_SIDED_BACKEND_NAME, ["cpu"], _TwoSidedTransport, list
@@ -167,7 +190,10 @@ def register_test_transports():
 
 @pytest.fixture(autouse=True)
 def clear_call_log():
-    """Reset the pipeline transport's call log and error config before each test."""
+    """Reset the pipeline transport's call log and error config before each test.
+
+    在每个测试前重置流水线传输的调用日志和错误配置。
+    """
     _PipelineCheckingTransport.call_log.clear()
     _PipelineCheckingTransport.fail_on_wait.clear()
     _PipelineCheckingTransport.wait_delay = 0
@@ -179,6 +205,11 @@ def _build_manager(object_ids: List[str], backend: str = _BACKEND_NAME) -> RDTMa
 
     Uses a real RDTStore so no Ray cluster is required.
     All objects are non-primary copies (pop_object=True in fetch_and_get_rdt_objects).
+
+    返回一个预填充了伪 RDT 元数据的 RDTManager。
+
+    使用真实的 RDTStore，因此不需要 Ray 集群。
+    所有对象都是非主副本（在 fetch_and_get_rdt_objects 中 pop_object=True）。
     """
     manager = RDTManager()
 
@@ -201,6 +232,7 @@ def _build_manager(object_ids: List[str], backend: str = _BACKEND_NAME) -> RDTMa
 
 # ---------------------------------------------------------------------------
 # Tests
+# 测试
 # ---------------------------------------------------------------------------
 
 
@@ -215,6 +247,7 @@ def test_fetch_and_get():
 
     # All fetch_multiple_tensors calls must precede all wait_fetch_complete
     # calls.
+    # 所有 fetch_multiple_tensors 调用必须在所有 wait_fetch_complete 调用之前。
     assert len(fetch_indices) == len(object_ids), f"call_log={call_log}"
     assert len(wait_indices) == len(object_ids), f"call_log={call_log}"
     assert max(fetch_indices) < min(
@@ -222,10 +255,12 @@ def test_fetch_and_get():
     ), f"Expected all fetches before all waits, got call_log={call_log}"
 
     # One entry per requested object ID.
+    # 每个请求的对象 ID 对应一个条目。
     assert set(result.keys()) == set(object_ids)
 
     call_log = _PipelineCheckingTransport.call_log
     # Each object ID triggers exactly one fetch and one wait.
+    # 每个对象 ID 恰好触发一次 fetch 和一次 wait。
     fetched = [oid for kind, oid in call_log if kind == "fetch"]
     waited = [oid for kind, oid in call_log if kind == "wait"]
 
@@ -234,13 +269,18 @@ def test_fetch_and_get():
 
 
 def test_primary_copy_objects_skip_fetch():
-    """Objects already in the store must not trigger a fetch."""
+    """Objects already in the store must not trigger a fetch.
+
+    已在 store 中的对象不得触发 fetch。
+    """
     secondary_ids = ["secondary1", "secondary2"]
     primary_id = "primary1"
     manager = _build_manager(secondary_ids + [primary_id])
 
     # Add the primary-copy and one secondary-copy object to the store directly.
     # Phase 1 of fetch_and_get_rdt_objects skips objects in store.
+    # 直接将主副本和一个次副本对象添加到 store。
+    # fetch_and_get_rdt_objects 的第一阶段跳过已在 store 中的对象。
     manager.rdt_store.add_object(primary_id, ["primary_value"], is_primary=True)
     manager.rdt_store.add_object(secondary_ids[0], ["secondary"], is_primary=False)
     result = manager.fetch_and_get_rdt_objects(secondary_ids + [primary_id])
@@ -251,15 +291,20 @@ def test_primary_copy_objects_skip_fetch():
         secondary_ids[1:]
     ), f"objects in store should not be fetched; got fetched={fetched}"
     # One fetch + one wait for each secondary object; zero for the primary one.
+    # 每个次副本对象一次 fetch + 一次 wait；主副本对象为零次。
     assert len(call_log) == 2, f"call_log={call_log}"
     # All objects should be returned in the results.
+    # 所有对象应在结果中返回。
     assert set(result.keys()) == set(secondary_ids + [primary_id])
     assert result[primary_id] == ["primary_value"]
     assert result[secondary_ids[0]] == ["secondary"]
 
 
 def test_empty_object_list_returns_empty_dict():
-    """Calling fetch_and_get_rdt_objects with an empty list returns an empty dict."""
+    """Calling fetch_and_get_rdt_objects with an empty list returns an empty dict.
+
+    以空列表调用 fetch_and_get_rdt_objects 返回空字典。
+    """
     manager = _build_manager([])
     result = manager.fetch_and_get_rdt_objects([])
 
@@ -268,7 +313,10 @@ def test_empty_object_list_returns_empty_dict():
 
 
 def test_two_sided_transport_raises_on_fetch_and_get_rdt_objects():
-    """ray.get (use_object_store=False) must raise ValueError for two-sided transports."""
+    """ray.get (use_object_store=False) must raise ValueError for two-sided transports.
+
+    ray.get（use_object_store=False）对双侧传输必须抛出 ValueError。
+    """
     obj_id = "two_sided_obj"
     manager = _build_manager([obj_id], backend=_TWO_SIDED_BACKEND_NAME)
 
@@ -283,7 +331,10 @@ def test_two_sided_transport_raises_on_fetch_and_get_rdt_objects():
 
 
 def test_fetch_requests_deleted_on_exception():
-    """If _wait_fetch raises, all FetchRequests are deleted (cleaning up resources via __del__)."""
+    """If _wait_fetch raises, all FetchRequests are deleted (cleaning up resources via __del__).
+
+    如果 _wait_fetch 抛出异常，所有 FetchRequest 都会被删除（通过 __del__ 清理资源）。
+    """
     import gc
 
     object_ids = ["obj1", "obj2", "obj3"]
@@ -301,17 +352,23 @@ def test_fetch_requests_deleted_on_exception():
 
 
 def test_object_fetch_timed_out_error():
-    """fetch_and_get_rdt_objects raises ObjectFetchTimedOutError when RDT timeout is hit."""
+    """fetch_and_get_rdt_objects raises ObjectFetchTimedOutError when RDT timeout is hit.
+
+    当 RDT 超时时，fetch_and_get_rdt_objects 抛出 ObjectFetchTimedOutError。
+    """
     from ray.exceptions import ObjectFetchTimedOutError
 
     object_ids = ["obj1", "obj2"]
     manager = _build_manager(object_ids)
     # Make wait_fetch_complete slow enough to exceed a very short timeout.
     _PipelineCheckingTransport.wait_delay = 0.2
+    # 使 wait_fetch_complete 足够慢以超过极短的超时时间。
 
     with pytest.raises(ObjectFetchTimedOutError):
         # timeout=None means no user timeout, so only RDT timeout applies.
         # We monkeypatch the constant to a very small value.
+        # timeout=None 表示无用户超时，因此仅 RDT 超时生效。
+        # 我们将常量 monkeypatch 为极小的值。
         import ray._private.ray_constants as rc
 
         original = rc.RDT_FETCH_FAIL_TIMEOUT_SECONDS
@@ -323,13 +380,18 @@ def test_object_fetch_timed_out_error():
 
 
 def test_get_timed_out_error():
-    """fetch_and_get_rdt_objects raises GetTimeoutError when user timeout is hit."""
+    """fetch_and_get_rdt_objects raises GetTimeoutError when user timeout is hit.
+
+    当用户超时时，fetch_and_get_rdt_objects 抛出 GetTimeoutError。
+    """
     object_ids = ["obj1", "obj2"]
     manager = _build_manager(object_ids)
     # Make wait_fetch_complete slow enough to exceed a very short timeout.
     _PipelineCheckingTransport.wait_delay = 0.2
+    # 使 wait_fetch_complete 足够慢以超过极短的超时时间。
 
     # Check that user timeout triggers before fetch fail timeout.
+    # 检查用户超时是否在 fetch 失败超时之前触发。
     with pytest.raises(GetTimeoutError):
         import ray._private.ray_constants as rc
 

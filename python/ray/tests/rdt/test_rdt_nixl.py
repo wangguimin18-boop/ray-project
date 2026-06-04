@@ -58,6 +58,7 @@ class GPUTestActor:
         assert rdt_manager.is_managed_object(obj_id)
         assert obj_id in nixl_transport._managed_meta_nixl
         # Tensor-level metadata counting: the tensor should have metadata_count=1
+        # Tensor 级别的元数据计数：该 tensor 应具有 metadata_count=1
         key = tensor.untyped_storage().data_ptr()
         assert key in nixl_transport._tensor_desc_cache
         assert nixl_transport._tensor_desc_cache[key].metadata_count == 1
@@ -91,7 +92,9 @@ class GPUTestActor:
         return get_tensor_transport_manager("NIXL")._get_num_managed_meta_nixl()
 
     def put_shared_tensor_lists(self):
-        """Create two tensor lists that share a common tensor and put them with NIXL transport."""
+        """Create two tensor lists that share a common tensor and put them with NIXL transport.
+
+创建两个共享同一 tensor 的 tensor 列表，并使用 NIXL 传输方式放入。"""
         t1 = torch.tensor([1, 2, 3]).to("cuda")
         t2 = torch.tensor([4, 5, 6]).to("cuda")
         t3 = torch.tensor([7, 8, 9]).to("cuda")
@@ -102,6 +105,8 @@ class GPUTestActor:
         ref1 = ray.put(list1, _tensor_transport="nixl")
         # Nixl itself doesn't handle duplicate memory registrations,
         # hence this call would fail without proper deduplication.
+        # NIXL 本身不处理重复的内存注册，
+        # 因此如果没有适当的去重机制，此调用将会失败。
         ref2 = ray.put(list2, _tensor_transport="nixl")
 
         return ref1, ref2
@@ -127,12 +132,16 @@ def test_ray_get_rdt_ref_created_by_actor_task(ray_start_regular):
 
     # Test ray.get with default tensor transport, should use nixl here.
     # TODO: Verify it's using the correct tensor transport.
+    # 测试使用默认 tensor 传输方式的 ray.get，此处应使用 NIXL。
+    # TODO：验证其使用了正确的 tensor 传输方式。
     assert torch.equal(ray.get(ref1), tensor)
 
     # # Test ray.get with nixl tensor transport
+    # # 测试使用 NIXL tensor 传输方式的 ray.get
     assert torch.equal(ray.get(ref2), tensor)
 
     # # Test ray.get with object store tensor transport
+    # # 测试使用 object store tensor 传输方式的 ray.get
     assert torch.equal(ray.get(ref3, _use_object_store=True), tensor)
 
 
@@ -144,18 +153,22 @@ def test_p2p(ray_start_regular):
     src_actor, dst_actor = actors[0], actors[1]
 
     # Create test tensor
+    # 创建测试 tensor
     tensor = torch.tensor([1, 2, 3])
 
     tensor1 = torch.tensor([4, 5, 6])
 
     # Test GPU to GPU transfer
+    # 测试 GPU 到 GPU 的传输
     ref = src_actor.echo.remote(tensor, "cuda")
 
     # Trigger tensor transfer from src to dst actor
+    # 触发从源 actor 到目标 actor 的 tensor 传输
     result = dst_actor.sum.remote(ref, "cuda")
     assert tensor.sum().item() == ray.get(result)
 
     # Test CPU to CPU transfer
+    # 测试 CPU 到 CPU 的传输
     ref1 = src_actor.echo.remote(tensor1, "cpu")
     result1 = dst_actor.sum.remote(ref1, "cpu")
     assert tensor1.sum().item() == ray.get(result1)
@@ -168,6 +181,7 @@ def test_intra_rdt_tensor_transfer(ray_start_regular):
     tensor = torch.tensor([1, 2, 3])
 
     # Intra-actor communication for pure GPU tensors
+    # 纯 GPU tensor 的 actor 内部通信
     ref = actor.echo.remote(tensor, "cuda")
     result = actor.sum.remote(ref, "cuda")
     assert tensor.sum().item() == ray.get(result)
@@ -238,6 +252,7 @@ def test_nixl_abort_sender_dies_before_creating(ray_start_regular):
     actors = [GPUTestActor.remote() for _ in range(2)]
 
     # Trigger transfer and kill sender before the receiver starts receiving
+    # 触发传输并在接收方开始接收之前杀死发送方
     signal_actor = SignalActor.remote()
     actors[0].block_main_thread.remote(signal_actor)
     ref = actors[0].echo.remote(torch.randn((100, 100)), "cuda")
@@ -248,6 +263,7 @@ def test_nixl_abort_sender_dies_before_creating(ray_start_regular):
         ray.get(result)
 
     # Try a transfer with actor[1] receiving again
+    # 尝试再次让 actor[1] 作为接收方进行传输
     new_actor = GPUTestActor.remote()
     ref = new_actor.echo.remote(torch.tensor([4, 5, 6]), "cuda")
     result = actors[1].sum.remote(ref, "cuda")
@@ -263,7 +279,13 @@ def test_nixl_abort_sender_dies_before_sending(ray_start_regular):
     2. Wait until the object is created so the transfer gets triggered
     3. Kill the sender
     4. Unblock the receiver
+
+    1. 阻塞接收方的后台线程，使接收不会开始
+    2. 等待直到对象被创建，从而触发传输
+    3. 杀死发送方
+    4. 解除接收方的阻塞
     """
+
     signal_actor = SignalActor.remote()
     actors[1].block_background_thread.remote(signal_actor)
     ref = actors[0].echo.remote(torch.randn((100, 100)), "cuda")
@@ -279,6 +301,7 @@ def test_nixl_abort_sender_dies_before_sending(ray_start_regular):
     assert "nixlBackendError" in exc_str and "The source actor may have died" in exc_str
 
     # Try a transfer with actor[1] receiving again
+    # 尝试再次让 actor[1] 作为接收方进行传输
     new_actor = GPUTestActor.remote()
     ref = new_actor.echo.remote(torch.tensor([4, 5, 6]), "cuda")
     result = actors[1].sum.remote(ref, "cuda")
@@ -291,6 +314,10 @@ def test_nixl_del_before_creating(ray_start_regular):
     Blocking the main thread until we free the object from the reference counter.
     Then unblocking the actor's main thread so the object can be created and then
     asserting that the object was actually freed.
+
+    阻塞主线程直到从引用计数器中释放该对象。
+    然后解除对 actor 主线程的阻塞，使对象可以被创建，
+    最后断言该对象确实已被释放。
     """
     signal_actor = SignalActor.remote()
     actor = GPUTestActor.remote()
@@ -344,6 +371,7 @@ def test_out_of_order_actors(ray_start_regular):
 
 @pytest.mark.skip(
     "If the tensor metadata doesn't exist at the time of borrowing, this will fail."
+    # 如果在借用时 tensor 元数据不存在，此测试将会失败。
 )
 @pytest.mark.parametrize("ray_start_regular", [{"num_gpus": 2}], indirect=True)
 def test_nixl_borrow_after_abort(ray_start_regular):
@@ -358,6 +386,9 @@ def test_shared_tensor_deduplication(ray_start_regular):
     Test that tensors shared across multiple lists are properly deduplicated.
 
     Creates list1 = [T1, T2] and list2 = [T2, T3] where T2 is shared.
+
+    测试跨多个列表共享的 tensor 是否被正确去重。
+    创建 list1 = [T1, T2] 和 list2 = [T2, T3]，其中 T2 是共享的。
     """
     actor = GPUTestActor.remote()
     ray.get(actor.put_shared_tensor_lists.remote())
@@ -368,6 +399,9 @@ def test_nixl_agent_reuse(ray_start_regular):
     """
     We reuse nixl remote agent by default. The receiver should successfully receive
     all tensors while the sender may trigger GC in between.
+
+    默认情况下我们复用 NIXL 远程代理。接收方应成功接收所有 tensor，
+    而发送方可能会在中间触发 GC。
     """
     actors = [GPUTestActor.remote() for _ in range(2)]
     src_actor, dst_actor = actors[0], actors[1]
@@ -377,12 +411,14 @@ def test_nixl_agent_reuse(ray_start_regular):
 
     # Trigger another transfer. The receiver successfully gets
     # the latest tensor (nixl agent is reused internally).
+    # 触发另一次传输。接收方成功获取最新的 tensor（NIXL 代理在内部被复用）。
     ref2 = src_actor.echo.remote(torch.tensor([4, 5, 6]).to("cuda"), "cuda")
     assert ray.get(dst_actor.sum.remote(ref2, "cuda")) == 15
 
     del ref1, ref2
 
     # Wait for GC to free the tensors on the sender.
+    # 等待 GC 释放发送方上的 tensor。
     wait_for_condition(
         lambda: ray.get(src_actor.get_num_managed_meta_nixl.remote()) == 0,
         timeout=10,
@@ -391,6 +427,7 @@ def test_nixl_agent_reuse(ray_start_regular):
 
     # Transfer after GC. The receiver successfully gets
     # the latest tensor (nixl agent is reset internally).
+    # GC 后的传输。接收方成功获取最新的 tensor（NIXL 代理在内部被重置）。
     ref3 = src_actor.echo.remote(torch.tensor([7, 8, 9]).to("cuda"), "cuda")
     assert ray.get(dst_actor.sum.remote(ref3, "cuda")) == 24
 
@@ -400,6 +437,8 @@ def test_nixl_agent_reuse_with_partial_tensors(ray_start_regular):
     """
     We reuse nixl remote agent by default. The receiver should successfully choose
     and receive part of the tensors.
+
+    默认情况下我们复用 NIXL 远程代理。接收方应成功选择并接收部分 tensor。
     """
     actors = [GPUTestActor.remote() for _ in range(2)]
     src_actor, dst_actor = actors[0], actors[1]
@@ -410,6 +449,7 @@ def test_nixl_agent_reuse_with_partial_tensors(ray_start_regular):
     del ref1
 
     # Wait for GC to free the tensors on the sender.
+    # 等待 GC 释放发送方上的 tensor。
     wait_for_condition(
         lambda: ray.get(src_actor.get_num_managed_meta_nixl.remote()) == 0,
         timeout=10,
@@ -418,13 +458,16 @@ def test_nixl_agent_reuse_with_partial_tensors(ray_start_regular):
 
     # Create the second tensor at the sender. The memory address of
     # this tensor may overlap with the first tensor (de-registered).
+    # 在发送方创建第二个 tensor。此 tensor 的内存地址可能与第一个 tensor（已注销注册）重叠。
     ref2 = src_actor.echo.remote(torch.tensor([1, 2, 3]).to("cuda"), "cuda")
 
     # Create the third tensor at the sender. The memory address of
     # this tensor may overlap with the first tensor (de-registered).
+    # 在发送方创建第三个 tensor。此 tensor 的内存地址可能与第一个 tensor（已注销注册）重叠。
     ref3 = src_actor.echo.remote(torch.tensor([4, 5, 6]).to("cuda"), "cuda")
     # Trigger the transfer. The receiver successfully gets
     # the third tensor (nixl agent is reset internally).
+    # 触发传输。接收方成功获取第三个 tensor（NIXL 代理在内部被重置）。
     assert ray.get(dst_actor.sum.remote(ref3, "cuda")) == 15
 
     del ref2, ref3
@@ -435,7 +478,11 @@ def test_storage_level_overlapping_views_reference_count(ray_start_regular):
     """Test that two overlapping tensors sharing the same underlying storage produce a
     single NIXL registration. When each tensor's ref goes out of scope via
     garbage_collect, the metadata_count decrements. After both are freed,
-    the registration is removed."""
+    the registration is removed.
+
+    测试共享相同底层 storage 的两个重叠 tensor 只产生一个 NIXL 注册。
+    当每个 tensor 的引用通过 garbage_collect 超出作用域时，metadata_count 递减。
+    两者都释放后，注册被移除。"""
     from ray.experimental.rdt.nixl_tensor_transport import (
         NixlTensorTransport,
     )
@@ -452,6 +499,7 @@ def test_storage_level_overlapping_views_reference_count(ray_start_regular):
     assert view0.data_ptr() != view1.data_ptr()
 
     # Simulate ray.put(view0)
+    # 模拟 ray.put(view0)
     obj_id1 = "test_obj_id_1"
     meta1 = transport.extract_tensor_transport_metadata(obj_id1, [view0])
     assert len(transport._tensor_desc_cache) == 1
@@ -459,6 +507,8 @@ def test_storage_level_overlapping_views_reference_count(ray_start_regular):
 
     # Simulate ray.put(view1) and check that the a new entry is not created in the tensor desc cache
     # since they share the same storage key and the metadata_count is incremented by 1
+    # 模拟 ray.put(view1)，并检查在 tensor desc cache 中不会创建新条目，
+    # 因为它们共享相同的 storage key，且 metadata_count 增加 1
     obj_id2 = "test_obj_id_2"
     meta2 = transport.extract_tensor_transport_metadata(obj_id2, [view1])
     assert len(transport._tensor_desc_cache) == 1
@@ -466,11 +516,14 @@ def test_storage_level_overlapping_views_reference_count(ray_start_regular):
 
     # Simulate the obj ref for view0 going out of scope and check that the nixl memory registration is
     # not cleared since the object ref for view1 is still in scope
+    # 模拟 view0 的对象引用超出作用域，并检查 NIXL 内存注册未被清除，
+    # 因为 view1 的对象引用仍在作用域内
     transport.garbage_collect(obj_id1, meta1, [view0])
     assert storage_key in transport._tensor_desc_cache
     assert transport._tensor_desc_cache[storage_key].metadata_count == 1
 
     # Simulate the obj ref for view1 going out of scope and check that the nixl memory registration is cleared
+    # 模拟 view1 的对象引用超出作用域，并检查 NIXL 内存注册已被清除
     transport.garbage_collect(obj_id2, meta2, [view1])
     assert storage_key not in transport._tensor_desc_cache
 
@@ -488,7 +541,9 @@ class OverlappingViewProducer:
 
 @pytest.mark.parametrize("ray_start_regular", [{"num_gpus": 2}], indirect=True)
 def test_storage_level_overlapping_views(ray_start_regular):
-    """Test that overlapping views of the same storage tensor are properly transferred."""
+    """Test that overlapping views of the same storage tensor are properly transferred.
+
+    测试同一 storage tensor 的重叠 view 是否被正确传输。"""
 
     actors = [OverlappingViewProducer.remote(), GPUTestActor.remote()]
     src_actor, dst_actor = actors[0], actors[1]
@@ -526,7 +581,10 @@ class WaitTensorFreedActor:
 @pytest.mark.parametrize("ray_start_regular", [{"num_gpus": 1}], indirect=True)
 def test_wait_tensor_freed_views(ray_start_regular):
     """Test that wait_tensor_freed tracks each view independently,
-    not the shared underlying storage."""
+    not the shared underlying storage.
+
+    测试 wait_tensor_freed 独立跟踪每个 view，
+    而不是共享的底层 storage。"""
     actor = WaitTensorFreedActor.remote()
     result = ray.get(actor.test_wait_tensor_freed_views.remote())
     assert result == "Success"
@@ -549,6 +607,7 @@ def test_nixl_get_into_tensor_buffers(ray_start_regular):
             set_target_for_ref(refs[0], self.tensor_list)
             tensors = ray.get(refs[0])
             # Make sure we ray.get-ted into the buffers
+            # 确保 ray.get 操作写入了预分配的 buffer
             for new_tensor, tensor_buffer in zip(tensors, self.tensor_list):
                 assert id(new_tensor) == id(tensor_buffer)
             return True
@@ -577,6 +636,8 @@ def test_nixl_get_into_tensor_buffers(ray_start_regular):
 def test_register_deregister_nixl_memory(ray_start_regular):
     """
     Test that register_nixl_memory persists the NIXL memory registration when the object ref goes out of scope
+
+    测试 register_nixl_memory 在对象引用超出作用域时保持 NIXL 内存注册
     """
     from ray.experimental.rdt.nixl_tensor_transport import (
         NixlTensorTransport,
@@ -591,17 +652,21 @@ def test_register_deregister_nixl_memory(ray_start_regular):
     assert transport._tensor_desc_cache[key].metadata_count == 1
 
     # Simulate ray.put via extract_tensor_transport_metadata and bump the reference count
+    # 模拟通过 extract_tensor_transport_metadata 执行 ray.put 并增加引用计数
     obj_id = "test_obj_id"
     meta = transport.extract_tensor_transport_metadata(obj_id, [tensor])
     assert transport._tensor_desc_cache[key].metadata_count == 2
 
     # Simulate GC via garbage_collect and decrement the reference count
+    # 模拟通过 garbage_collect 执行 GC 并减少引用计数
     transport.garbage_collect(obj_id, meta, [tensor])
     assert key in transport._tensor_desc_cache
     # The reference count should be 1 due to being bumped by register_nixl_memory
+    # 引用计数应为 1，因为被 register_nixl_memory 增加过
     assert transport._tensor_desc_cache[key].metadata_count == 1
 
     # decrement the remaining count to 0 and deregister the memory
+    # 将剩余计数减至 0 并注销内存注册
     transport.deregister_nixl_memory(tensor)
     assert key not in transport._tensor_desc_cache
 
@@ -612,6 +677,9 @@ def test_nixl_memory_pool(ray_start_regular, device):
     """
     Test NIXL memory pool: use the pre-allocated memory pool for NIXL transfers when available.
     When the pool cannot accommodate an allocation, an error is raised.
+
+    测试 NIXL 内存池：当可用时，使用预分配的内存池进行 NIXL 传输。
+    当内存池无法容纳一次分配时，将抛出错误。
     """
 
     @ray.remote(num_gpus=1, num_cpus=0, enable_tensor_transport=True)
@@ -632,15 +700,19 @@ def test_nixl_memory_pool(ray_start_regular, device):
     dst_actor = GPUTestActor.remote()
 
     # Transfer the first small tensor (using memory pool internally).
+    # 传输第一个小型 tensor（内部使用内存池）。
     ref1 = src_actor.echo.remote(torch.tensor([1, 2, 3]).to(device), device)
     assert ray.get(dst_actor.sum.remote(ref1, device)) == 6
 
     # Transfer the second small tensor (using memory pool internally).
+    # 传输第二个小型 tensor（内部使用内存池）。
     ref2 = src_actor.echo.remote(torch.tensor([4, 5, 6]).to(device), device)
     assert ray.get(dst_actor.sum.remote(ref2, device)) == 15
 
     # Third transfer: pool is full. The allocation raises
     # NixlOutOfMemoryError, which surfaces as a RayTaskError.
+    # 第三次传输：内存池已满。分配操作抛出 NixlOutOfMemoryError，
+    # 该错误以 RayTaskError 的形式呈现。
     ref3 = src_actor.echo.remote(torch.tensor([7, 8, 9]).to(device), device)
     with pytest.raises(ray.exceptions.RayTaskError) as excinfo:
         ray.get(dst_actor.sum.remote(ref3, device))
@@ -651,6 +723,7 @@ def test_nixl_memory_pool(ray_start_regular, device):
     del ref1, ref2, ref3
 
     # Wait for GC to free the tensors on the sender.
+    # 等待 GC 释放发送方上的 tensor。
     wait_for_condition(
         lambda: ray.get(src_actor.get_num_managed_meta_nixl.remote()) == 0,
         timeout=10,
@@ -658,6 +731,7 @@ def test_nixl_memory_pool(ray_start_regular, device):
     )
 
     # Transfer the fourth tensor (after GC, using memory pool internally).
+    # 传输第四个 tensor（GC 后，内部使用内存池）。
     ref4 = src_actor.echo.remote(torch.tensor([1, 2, 3, 4, 5, 6]).to(device), device)
     assert ray.get(dst_actor.sum.remote(ref4, device)) == 21
 
@@ -668,6 +742,9 @@ def test_nixl_memory_pool_view_deduplication(ray_start_regular):
     Test that views of the same tensor within a single ray.put share a single
     pool allocation, and that across ray.put calls the same storage reuses its
     pool slot.
+
+    测试在同一 ray.put 中同一 tensor 的多个 view 共享一次内存池分配，
+    以及在不同 ray.put 调用之间相同的 storage 复用其内存池槽位。
     """
     from ray.experimental.rdt.nixl_tensor_transport import (
         NixlTensorTransport,
@@ -679,17 +756,22 @@ def test_nixl_memory_pool_view_deduplication(ray_start_regular):
 
     # Pool sized to exactly one full storage copy — enough for the shared
     # storage, and small enough that a duplicate allocation would fail.
+    # 内存池大小恰好为一个完整 storage 副本——足够容纳共享的 storage，
+    # 且足够小以至于重复分配会失败。
     transport.register_nixl_memory_pool(storage_size, torch.device("cuda"))
 
     view_a = base[0:2]
     view_b = base[1:3]
 
     # Both views share the same storage
+    # 两个 view 共享相同的 storage
     assert view_a.untyped_storage().data_ptr() == base.untyped_storage().data_ptr()
     assert view_b.untyped_storage().data_ptr() == base.untyped_storage().data_ptr()
 
     # Put both views in one object — shared storage should be allocated only once,
     # but metadata_count increments once per tensor.
+    # 将两个 view 放入同一个对象——共享 storage 应只分配一次，
+    # 但 metadata_count 每个 tensor 增加 1。
     obj_id1 = "view_obj_1"
     meta1 = transport.extract_tensor_transport_metadata(obj_id1, [view_a, view_b])
     ptr = base.untyped_storage().data_ptr()
@@ -700,6 +782,7 @@ def test_nixl_memory_pool_view_deduplication(ray_start_regular):
     assert transport._tensor_desc_cache[ptr].metadata_count == 2
 
     # Second put of the same view — should reuse the same pool slot (cross-call cache)
+    # 第二次 put 同一个 view——应复用相同的内存池槽位（跨调用缓存）
     obj_id2 = "view_obj_2"
     meta2 = transport.extract_tensor_transport_metadata(obj_id2, [view_a])
     assert pool.has_block(base)
@@ -707,12 +790,14 @@ def test_nixl_memory_pool_view_deduplication(ray_start_regular):
 
     # GC: metadata_count decrements once per tensor passed in, symmetric with
     # _add_pool_tensor_descs.
+    # GC：metadata_count 每传入一个 tensor 减 1，与 _add_pool_tensor_descs 对称。
     transport.garbage_collect(obj_id1, meta1, [view_a, view_b])
     assert ptr in transport._tensor_desc_cache
     assert transport._tensor_desc_cache[ptr].metadata_count == 1
 
     transport.garbage_collect(obj_id2, meta2, [view_a])
     # All refs gone, pool block freed
+    # 所有引用已清除，内存池块已释放
     assert ptr not in transport._tensor_desc_cache
     assert not pool.has_block(base)
 

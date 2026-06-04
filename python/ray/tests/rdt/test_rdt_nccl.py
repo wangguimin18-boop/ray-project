@@ -20,6 +20,7 @@ class GPUTestActor:
 @pytest.mark.parametrize("ray_start_regular", [{"num_gpus": 2}], indirect=True)
 def test_p2p(ray_start_regular):
     # TODO(swang): Add tests for mocked NCCL that can run on CPU-only machines.
+    # TODO(swang): 添加可以在仅 CPU 机器上运行的模拟 NCCL 测试。
     world_size = 2
     actors = [GPUTestActor.remote() for _ in range(world_size)]
     create_collective_group(actors, backend="nccl")
@@ -27,10 +28,12 @@ def test_p2p(ray_start_regular):
     src_actor, dst_actor = actors[0], actors[1]
 
     # Create test tensor
+    # 创建测试 Tensor
     tensor = torch.tensor([1, 2, 3])
     rdt_ref = src_actor.echo.remote(tensor)
 
     # Trigger tensor transfer from src to dst actor
+    # 触发从源 Actor 到目标 Actor 的 Tensor 传输
     remote_sum = ray.get(dst_actor.sum.remote(rdt_ref))
     assert tensor.sum().item() == remote_sum
 

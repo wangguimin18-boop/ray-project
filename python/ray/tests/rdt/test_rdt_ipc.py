@@ -38,12 +38,15 @@ def test_colocated_actors(ray_start_regular):
     src_actor, dst_actor = actors[0], actors[1]
 
     # Create test tensor
+    # 创建测试 tensor
     tensor = torch.tensor([1, 2, 3])
     rdt_ref = src_actor.echo.remote(tensor)
 
     # Trigger tensor transfer from src to dst actor
+    # 触发从 src actor 到 dst actor 的 tensor 传输
     ray.get(dst_actor.double.remote(rdt_ref))
     # Check that the tensor is modified in place, and is reflected on the source actor
+    # 检查 tensor 已就地修改，并在源 actor 上体现
     assert torch.equal(
         ray.get(rdt_ref, _use_object_store=True),
         torch.tensor([2, 4, 6], device="cuda"),
@@ -60,11 +63,14 @@ def test_different_devices(ray_start_regular):
     src_actor, dst_actor = actors[0], actors[1]
 
     # Create test tensor
+    # 创建测试 tensor
     tensor = torch.tensor([1, 2, 3])
     rdt_ref = src_actor.echo.remote(tensor)
 
     # Trigger tensor transfer from src to dst actor. Since CUDA IPC transport does not
     # support cross-device tensor transfers, this should raise a ValueError.
+    # 触发从 src actor 到 dst actor 的 tensor 传输。由于 CUDA IPC 传输不支持
+    # 跨设备 tensor 传输，此处应抛出 ValueError。
     with pytest.raises(
         ValueError, match="CUDA IPC transport only supports tensors on the same GPU*"
     ):
@@ -73,6 +79,7 @@ def test_different_devices(ray_start_regular):
 
 def test_different_nodes(ray_start_cluster):
     # Test that inter-node CUDA IPC transfers throw an error.
+    # 测试跨节点的 CUDA IPC 传输是否会抛出错误。
     cluster = ray_start_cluster
     num_nodes = 2
     num_cpus = 1
@@ -89,11 +96,14 @@ def test_different_nodes(ray_start_cluster):
     src_actor, dst_actor = actors[0], actors[1]
 
     # Create test tensor
+    # 创建测试 tensor
     tensor = torch.tensor([1, 2, 3])
     rdt_ref = src_actor.echo.remote(tensor)
 
     # Trigger tensor transfer from src to dst actor. Since CUDA IPC transport does not
     # support cross-device tensor transfers, this should raise a ValueError.
+    # 触发从 src actor 到 dst actor 的 tensor 传输。由于 CUDA IPC 传输不支持
+    # 跨设备 tensor 传输，此处应抛出 ValueError。
     with pytest.raises(
         ValueError, match="CUDA IPC transport only supports tensors on the same node.*"
     ):
@@ -111,10 +121,12 @@ def test_ref_freed(ray_start_regular):
     src_actor, dst_actor = actors[0], actors[1]
 
     # Create test tensor
+    # 创建测试 tensor
     tensor = torch.tensor([1, 2, 3])
     rdt_ref = src_actor.echo.remote(tensor)
 
     # Trigger tensor transfer from src to dst actor
+    # 触发从 src actor 到 dst actor 的 tensor 传输
     res_ref = dst_actor.double.remote(rdt_ref)
 
     del rdt_ref
@@ -139,10 +151,12 @@ def test_source_actor_fails_after_transfer(ray_start_regular):
     src_actor, dst_actor = actors[0], actors[1]
 
     # Create test tensor
+    # 创建测试 tensor
     tensor = torch.tensor([1, 2, 3])
     rdt_ref = src_actor.echo.remote(tensor)
 
     # Trigger tensor transfer from src to dst actor
+    # 触发从 src actor 到 dst actor 的 tensor 传输
     res_ref = dst_actor.double.remote(rdt_ref)
     assert torch.equal(
         ray.get(res_ref, _use_object_store=True),
@@ -150,11 +164,13 @@ def test_source_actor_fails_after_transfer(ray_start_regular):
     )
 
     # Kill the source actor.
+    # 终止源 actor。
     ray.kill(src_actor)
     with pytest.raises(ray.exceptions.RayActorError):
         ray.get(src_actor.wait_tensor_freed.remote())
 
     # Check that the tensor is still available on the destination actor.
+    # 检查 tensor 在目标 actor 上仍然可用。
     assert torch.equal(
         ray.get(res_ref, _use_object_store=True),
         torch.tensor([2, 4, 6], device="cuda"),
@@ -172,21 +188,25 @@ def test_source_actor_fails_before_transfer(ray_start_regular):
     src_actor, dst_actor = actors[0], actors[1]
 
     # Create test tensor
+    # 创建测试 tensor
     tensor = torch.tensor([1, 2, 3])
     rdt_ref = src_actor.echo.remote(tensor)
 
     # Wait for object to be created.
+    # 等待对象创建完成。
     assert torch.equal(
         ray.get(rdt_ref, _use_object_store=True),
         torch.tensor([1, 2, 3], device="cuda"),
     )
 
     # Kill the source actor.
+    # 终止源 actor。
     ray.kill(src_actor)
     with pytest.raises(ray.exceptions.RayActorError):
         ray.get(src_actor.wait_tensor_freed.remote())
 
     # Check that the tensor is still available on the destination actor.
+    # 检查 tensor 在目标 actor 上仍然可用。
     with pytest.raises(ray.exceptions.RayTaskError):
         res_ref = dst_actor.double.remote(rdt_ref)
         ray.get(res_ref, _use_object_store=True)
